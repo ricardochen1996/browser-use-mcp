@@ -1,0 +1,62 @@
+{
+  "name": "@ricardochen1996/browser-use-mcp",
+  "version": "0.1.0",
+  "description": "An MCP server that gives any agent a browser it can see and click: the page is read as an indexed action space, and every step is one guarded operation on an observed target.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricardochen1996/browser-use-mcp.git"
+  },
+  "homepage": "https://github.com/ricardochen1996/browser-use-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/ricardochen1996/browser-use-mcp/issues"
+  },
+  "bin": {
+    "browser-use-mcp": "./bin/browser-use-mcp.mjs"
+  },
+  "main": "./lib/server.js",
+  "exports": {
+    ".": "./lib/server.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/browser-use-mcp.mjs",
+    "lib/*.js",
+    "sidecar/bridge.py",
+    "vendor/jev_ultrafast-0.1.1-py3-none-any.whl",
+    "vendor/requirements.txt",
+    "vendor/jev-ultrafast.json",
+    "docs/*.md",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "start": "node bin/browser-use-mcp.mjs",
+    "doctor": "node bin/browser-use-mcp.mjs doctor",
+    "install-engine": "node bin/browser-use-mcp.mjs install",
+    "test": "node --test test/unit/*.test.mjs",
+    "test:e2e": "node test/e2e/stdio.mjs && node test/e2e/http.mjs",
+    "check": "npm test && npm run test:e2e"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "browser",
+    "browser-use",
+    "browser-automation",
+    "cdp",
+    "jev",
+    "agent"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}

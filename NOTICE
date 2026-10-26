@@ -1,0 +1,35 @@
+# Third-party notices
+
+`browser-use-mcp` is MIT licensed (see [LICENSE](LICENSE)). It bundles or vendors the
+following work, all MIT licensed:
+
+## `sidecar/bridge.py`
+
+The line-delimited JSON sidecar that owns one browser session, reads a page as an indexed
+action space, and executes one guarded operation at a time.
+
+- Upstream: [`dsh-browser-use`](https://github.com/ricardochen1996/dsh-browser-use) v0.8.2,
+  `sidecar/bridge.py`
+- Upstream revision: `dfe8bfc5221cb6573c1a29bb258059f9a430cd0d`
+- SHA-256 of the vendored file: `7c17aa05afae0f03cff5af63a233d097c5982d273437608b1e9126055561085d`
+- Changes: the module docstring names this project as its host and the methods table gains
+  the MCP server's `doctor`-adjacent notes; behaviour is unchanged.
+
+## `vendor/jev_ultrafast-0.1.1-py3-none-any.whl`
+
+The browser engine: a dynamic, indexed action space, a guarded executor, and the Jev/TypeSafe
+policy loop. Imported as a library by `sidecar/bridge.py`; no engine source ships in this
+package.
+
+- Upstream: [`jev-ultrafast`](https://github.com/ricardochen1996/jev-ultrafast) v0.1.1,
+  revision `50b319fd3e56052232b3a8de5695af9d30f77efb`
+- SHA-256: `641dbc1cdf9b502e382e3a9d06d4f2545ebd7e5038f66fab6f3bc2ed68934103`
+
+## `vendor/requirements.txt`
+
+The sidecar's runtime dependencies (notably [`browser-harness`](https://github.com/browser-use/browser-harness)
+0.1.13, also MIT), pinned by version and by the hash of every artifact, rendered from the
+upstream `uv.lock`.
+
+- Upstream: `dsh-browser-use` v0.8.2, `vendor/requirements.txt`
+- SHA-256: `dd3f3ad0cae4e9ae211013aeabe80fed43adbfa1a3673995984555235465c216`
