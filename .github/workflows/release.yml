@@ -107,6 +107,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Ensure npm supports Trusted Publishing
+        run: npm install --global npm@11
+
       - name: Stop if this version is already published
         id: existing
         shell: bash
@@ -131,6 +134,12 @@ jobs:
           # for a short-lived publish credential after the package's settings name this repository and
           # workflow. With neither, npm cannot authenticate and the error below says both options.
           npm run release:check -- --tag "${{ needs.validate.outputs.tag }}"
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            # An empty NODE_AUTH_TOKEN is not a credential; remove it so npm upgrades to OIDC
+            # trusted publishing instead of sending an empty auth header.
+            unset NODE_AUTH_TOKEN
+            echo "::notice::No NPM_TOKEN secret; publishing through npm Trusted Publishing (OIDC)."
+          fi
           if ! npm publish --access public --provenance; then
             echo "::error::npm publish failed. Configure either (a) an NPM_TOKEN repository secret with publish access, or (b) a Trusted Publisher on npmjs.com for this package pointing at ricardochen1996/browser-use-mcp and .github/workflows/release.yml, then re-run this workflow."
             exit 1

@@ -7,6 +7,25 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-27
+
+Release tooling and documentation only: the server behaves exactly as 0.1.0.
+
+### Changed
+
+- **npm Trusted Publishing.** A `vX.Y.Z` tag release now publishes through npm's OIDC trusted
+  publishing when no `NPM_TOKEN` secret is configured: the package names this repository,
+  `.github/workflows/release.yml` and the `npm` environment, so npm exchanges the job's short-lived
+  OIDC token for publish access and generates provenance without a long-lived token. A repository
+  that adds an `NPM_TOKEN` secret keeps working the old way.
+- GitHub Actions runs the unit suite on Node 22.19 and 24 and every end-to-end suite as its own
+  annotated step on Ubuntu (Chrome plus a managed Python 3.12 environment); a failing unit test is
+  published as an annotation, so a red run is diagnosable from the run page without the job log.
+- The release workflow fetches annotated tag objects explicitly (checkout can leave a lightweight
+  ref), refuses to continue when the tag or version disagree, skips a version that is already on
+  npm, and attaches the verified `dist/` tarball to the GitHub Release.
+- README (English and Chinese) documents the trusted-publisher path and the tag workflow.
+
 ## [0.1.0] - 2026-10-27
 
 The first public version of `browser-use-mcp`: an MCP server that gives any agent a browser it can
@@ -161,5 +180,6 @@ These are the pre-release fixes that made the first version safe to publish.
 - `browser-use-mcp` is MIT licensed and bundles or vendors MIT work from `dsh-browser-use`,
   `jev-ultrafast` and `browser-harness`; see [NOTICE](NOTICE).
 
-[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.0
