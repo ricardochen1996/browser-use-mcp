@@ -143,6 +143,12 @@ async function main() {
     assert.match(instructions, /One connection, one driver/u)
     passed.push(`the server offers ${names.length} tools with instructions`)
 
+    // A close with nothing open is a refusal, not a browser launch.
+    const idleClose = await call(first.client, 'browser_close')
+    assert.equal(idleClose.isError, false)
+    assert.match(idleClose.text, /nothing to close/u)
+    passed.push('browser_close with no open page refused instead of starting a browser')
+
     // 2. Open the fixture and read its action space.
     const opened = await call(first.client, 'browser_open', { url: FIXTURE })
     assert.equal(opened.isError, false, opened.text)

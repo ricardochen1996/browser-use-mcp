@@ -69,10 +69,14 @@ see and click, built on the `dsh-browser-use` engine.
   Cursor, Codex, DSH and generic `mcpServers`, stdio and HTTP), `docs/config.md` (exhaustive flag
   and variable reference), `docs/architecture.md` (design and rationale), `AGENTS.md` (the working
   contract) and `NOTICE` (third-party attribution).
-- **Tests.** `test/unit/` covers configuration, CLI parsing, rendering and provisioning
-  (including a real install into a temporary home); `test/e2e/stdio.mjs` drives a real headless
-  Chrome through the real MCP protocol, and `test/e2e/http.mjs` proves two MCP sessions on one HTTP
-  endpoint never share a page and are cleaned up. No model calls and no credentials are needed.
+- **Tests.** `test/unit/` covers configuration, CLI parsing, rendering, sessions/locks and
+  provisioning (including a real install into a temporary home); four real-browser end-to-end
+  suites drive the real MCP protocol: `test/e2e/stdio.mjs` (tools, freshness guard, refusals,
+  eval/screenshot/console, profile lock, tool switches), `test/e2e/http.mjs` (two MCP sessions on
+  one endpoint never share a page, idle cleanup, a long profile name), `test/e2e/attach.mjs`
+  (attach mode against a Chrome the test launches: the attached browser survives every close) and
+  `test/e2e/intent.mjs` (the Jev intent/goal path against a loopback chat stub, plus the
+  no-credentials refusal). No paid model calls and no credentials are needed.
 
 ### Fixed
 
@@ -101,6 +105,19 @@ These are the pre-release fixes that made the first version safe to publish.
   failing the call, and its request deadline covers the expression's own bound.
 - The absolute path of `sidecar/bridge.py`, the bundled wheel and the requirements file is resolved
   from the package, not from the working directory, so a client may start the server from anywhere.
+- `browser_goal` no longer fails in milliseconds: an unbounded request means no deadline timer at
+  all, instead of a delay Node clamps to 1 ms. A goal run is bounded by the MCP client's timeout,
+  and the engine stops it at `DONE`/`BLOCKED`.
+- A long `--profile` name can no longer overflow the engine daemon's AF_UNIX socket path: the
+  daemon name falls back to a stable short digest, and a runtime directory that cannot fit is
+  refused with the variable that fixes it.
+- An unexpected sidecar exit marks its generation unusable instead of silently reusing it, and a
+  session that replaces a dead generation forgets that generation's page table.
+- An HTTP MCP session is not closed by the idle sweep while a tool call is in flight, and a client's
+  long-lived GET event stream does not keep it from ever looking idle.
+- `browser_close` with no page open answers "nothing to close" instead of starting a browser.
+- Numeric tool arguments (a target index that arrives as a JSON number) are accepted where a string
+  is meant, instead of failing MCP input validation.
 
 ### Notes
 

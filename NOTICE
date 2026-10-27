@@ -12,8 +12,7 @@ action space, and executes one guarded operation at a time.
   `sidecar/bridge.py`
 - Upstream revision: `dfe8bfc5221cb6573c1a29bb258059f9a430cd0d`
 - SHA-256 of the vendored file: `7c17aa05afae0f03cff5af63a233d097c5982d273437608b1e9126055561085d`
-- Changes: the module docstring names this project as its host and the methods table gains
-  the MCP server's `doctor`-adjacent notes; behaviour is unchanged.
+- Changes: the module docstring names this project as its host only; behaviour is unchanged.
 
 ## `vendor/jev_ultrafast-0.1.1-py3-none-any.whl`
 

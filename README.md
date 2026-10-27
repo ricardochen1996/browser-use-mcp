@@ -351,6 +351,9 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doc
   code `2` and names the field.
 - **Chrome asks "Allow remote debugging?".** Something started a second CDP client. Approve that one
   prompt once, never retry, and use `browser_eval` instead of another driver.
+- **`browser_eval('document.body')` returns `{}`.** A DOM node cannot cross the CDP boundary by
+  value. Return something serialisable instead, for example `document.body.innerText` or
+  `JSON.stringify(document.body.getAttribute('class'))`.
 
 ---
 
@@ -387,7 +390,8 @@ design and rationale are in [docs/architecture.md](docs/architecture.md).
 
 ```bash
 npm test          # fast unit tests (node --test)
-npm run test:e2e  # real headless Chrome through the real MCP protocol (stdio + HTTP)
+npm run test:e2e  # real headless Chrome through the real MCP protocol
+                  # (stdio, HTTP, attach mode, Jev intent against a loopback stub)
 npm run doctor    # the CLI self-check
 ```
 

@@ -223,6 +223,14 @@ describe('describeConfig', () => {
     assert.ok(text.includes('key set'), 'the doctor still says a key is set')
   })
 
+  it('formats a sub-minute HTTP idle timeout in seconds', () => {
+    const config = resolveConfig({ flags: { transport: 'http' }, env: { BROWSER_USE_MCP_HTTP_IDLE_MS: '90000' }, cwd: '/work' })
+    const text = describeConfig(config).join('\n')
+    assert.ok(text.includes('idle MCP sessions are closed after 2 minutes'), text)
+    const short = resolveConfig({ flags: { transport: 'http' }, env: { BROWSER_USE_MCP_HTTP_IDLE_MS: '1500' }, cwd: '/work' })
+    assert.ok(describeConfig(short).join('\n').includes('after 1.5 seconds'))
+  })
+
   it('describes attach mode and an HTTP transport', () => {
     const config = resolveConfig({
       flags: { transport: 'http', port: '7331', cdpEndpoint: 'http://127.0.0.1:9333' },

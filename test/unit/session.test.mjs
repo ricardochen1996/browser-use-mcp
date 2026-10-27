@@ -11,6 +11,7 @@ import { after, describe, it } from 'node:test'
 
 import { resolveConfig } from '../../lib/config.js'
 import { BrowserSession, FileLock, SessionBusy, SessionRefusal } from '../../lib/session.js'
+import { daemonIdentity } from '../../lib/sidecar.js'
 
 const HOME = mkdtempSync(join(tmpdir(), 'browser-use-mcp-session-'))
 after(() => rmSync(HOME, { recursive: true, force: true }))
@@ -270,7 +271,32 @@ describe('goal', () => {
   })
 })
 
+describe('a lost generation', () => {
+  it('forgets the page table of a sidecar that is gone, and starts a new generation', async () => {
+    const { session, fake } = sessionFor({
+      handlers: { observe: () => ({ page: page('fresh-generation') }) },
+    })
+    session.observed(page('old-generation'))
+    session.lastAction = 'CLICK on something'
+    session.sidecar = { broken: true, problem: 'the browser sidecar exited (1)', stop: async () => '' }
+    const result = await session.observe()
+    assert.equal(fake.readyCalls, 1, 'a new sidecar was made ready')
+    assert.equal(result.page.fingerprint, 'fresh-generation')
+    assert.match(session.problem, /browser sidecar exited/u, 'the caller can be told what happened')
+    assert.equal(session.fingerprintFor(1), undefined, 'the dead generation’s observations are gone')
+    await session.shutdown()
+  })
+})
+
 describe('close and shutdown', () => {
+  it('closing with nothing open does not start a sidecar', async () => {
+    const { session, fake } = sessionFor()
+    const result = await session.close()
+    assert.deepEqual(result, { closed: false, idle: true })
+    assert.equal(fake.readyCalls, 0)
+    assert.equal(session.sidecar, undefined)
+  })
+
   it('close forgets the page but keeps the sidecar', async () => {
     const { session, fake } = sessionFor({
       handlers: {
@@ -295,6 +321,34 @@ describe('close and shutdown', () => {
     assert.equal(existsSync(join(config.userDataDir, '.browser-use-mcp.lock')), false, 'the lock is gone before the stop resolves')
     await stopped
     assert.deepEqual(fake.stopped, [{ graceMs: 250 }])
+  })
+})
+
+describe('daemon identity', () => {
+  // A short caller-supplied runtime directory; the shared switch keeps the daemon name in the file
+  // stem, which is what the real server always sets (it starts several sidecars on one directory).
+  const shortEnv = { BH_RUNTIME_DIR: join(tmpdir(), 'bum-test-runtime'), BH_RUNTIME_DIR_SHARED: '1' }
+
+  it('names the daemon after the session when the socket path fits', () => {
+    const { name, files } = daemonIdentity(shortEnv, 'default', 1)
+    assert.equal(name, 'browser-use-mcp-default')
+    assert.ok(files.sockPath.length <= 100, files.sockPath)
+  })
+
+  it('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
+    const label = 'a'.repeat(40) + '-abcdefghijklm'
+    const { name, files } = daemonIdentity(shortEnv, label, 1)
+    assert.match(name, /^browser-use-mcp-[0-9a-f]{10}$/u)
+    assert.ok(files.sockPath.length <= 100, files.sockPath)
+    // The same label and generation must find the same daemon again; another one must not collide.
+    assert.equal(daemonIdentity(shortEnv, label, 1).name, name)
+    assert.notEqual(daemonIdentity(shortEnv, label, 2).name, name)
+    assert.notEqual(daemonIdentity(shortEnv, `${label}x`, 1).name, name)
+  })
+
+  it('refuses a runtime directory so long that no daemon name can fit, and names the fix', () => {
+    const deep = { BH_RUNTIME_DIR: join(tmpdir(), 'x'.repeat(120)), BH_RUNTIME_DIR_SHARED: '1' }
+    assert.throws(() => daemonIdentity(deep, 'default', 1), /BH_RUNTIME_DIR/u)
   })
 })
 

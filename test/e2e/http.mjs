@@ -130,11 +130,11 @@ function elementLine(text, pattern) {
   return { index: Number(line.match(/^\[(\d+)\]/u)[1]), line }
 }
 
-/** The profile directories this test's server created under the state root. */
-function profileDirs() {
+/** The profile directories this test's servers created under the state root. */
+function profileDirs(prefix = PROFILE) {
   const root = join(STATE_ROOT, 'profiles')
   if (!existsSync(root)) return []
-  return readdirSync(root).filter(name => name.startsWith(PROFILE))
+  return readdirSync(root).filter(name => name.startsWith(prefix))
 }
 
 async function waitFor(predicate, timeoutMs, description) {
@@ -277,6 +277,28 @@ async function main() {
     step('idle-timeout server stopped')
   }
   await waitFor(() => profileDirs().length === 0, 10_000, 'the last profile to be removed')
+
+  // ---- A long profile name must not become an AF_UNIX path the engine cannot open.
+  const longProfile = 'abcdefghijklmnop' // 16 characters: over the boundary observed on macOS
+  step('starting a server with a long profile name')
+  const longNamed = await startServer({
+    BROWSER_USE_MCP_PROFILE: longProfile,
+    BROWSER_USE_MCP_HTTP_IDLE_MS: '600000',
+  })
+  try {
+    const c = await connect(longNamed.url)
+    const opened = await call(c.client, 'browser_open', { url: FIXTURE }, 300_000)
+    assert.equal(opened.isError, false, opened.text)
+    assert.match(opened.text, /^Page file:\/\//mu)
+    assert.equal(profileDirs(longProfile).length, 1, 'the long profile still gets a profile directory')
+    await c.transport.terminateSession()
+    await waitFor(() => profileDirs(longProfile).length === 0, 20_000, 'the long-profile session cleanup')
+    passed.push('a long profile name opened a page instead of failing on the Unix socket path')
+  } finally {
+    step('stopping the long-profile server')
+    await stopServer(longNamed, 'long-profile')
+  }
+  await waitFor(() => profileDirs(longProfile).length === 0, 10_000, 'the long-profile directory to be removed')
 
   console.log(passed.map((line, index) => `${index + 1}. ${line}`).join('\n'))
   console.log(`\nPASS: ${passed.length} HTTP end-to-end checks; real headless browsers on one endpoint, no model calls`)

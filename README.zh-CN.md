@@ -274,6 +274,7 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doc
 - **`Jev … NOT READY`。** 设 `TYPESAFE_API_KEY`（或用 `--jev-decider chat` 配 `TEXT_MODEL_*`）。浏览器工具不需要它。
 - **客户端里看不到工具。** 客户端的 `env`/`args` 没送到服务器，或者改完没重启。在终端里跑同一条命令看 stderr；配置错误会以退出码 `2` 结束并点名出错的字段。
 - **Chrome 弹 “Allow remote debugging?”。** 有东西起了第二个 CDP 客户端。只批准那一个弹窗一次，绝不重试；程序化的工作改用 `browser_eval`。
+- **`browser_eval('document.body')` 返回 `{}`。** DOM 节点无法按值跨过 CDP 边界。改为返回可序列化的东西，比如 `document.body.innerText` 或 `JSON.stringify(document.body.getAttribute('class'))`。
 
 ---
 
@@ -298,7 +299,8 @@ MIT。见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
 
 ```bash
 npm test          # 快速单元测试（node --test）
-npm run test:e2e  # 真实 headless Chrome 跑真实 MCP 协议（stdio + HTTP）
+npm run test:e2e  # 真实 headless Chrome 跑真实 MCP 协议
+                  # （stdio、HTTP、attach 模式、用回环 stub 验证的 Jev intent）
 npm run doctor    # CLI 自检
 ```
 

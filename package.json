@@ -42,8 +42,10 @@
     "doctor": "node bin/browser-use-mcp.mjs doctor",
     "install-engine": "node bin/browser-use-mcp.mjs install",
     "test": "node --test test/unit/*.test.mjs",
-    "test:e2e": "node test/e2e/stdio.mjs && node test/e2e/http.mjs",
-    "check": "npm test && npm run test:e2e"
+    "test:e2e": "node test/e2e/stdio.mjs && node test/e2e/http.mjs && node test/e2e/attach.mjs && node test/e2e/intent.mjs",
+    "check": "npm test && npm run test:e2e",
+    "test:e2e:attach": "node test/e2e/attach.mjs",
+    "test:e2e:intent": "node test/e2e/intent.mjs"
   },
   "keywords": [
     "mcp",
