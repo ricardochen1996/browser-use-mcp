@@ -16,6 +16,18 @@ see and click, built on the `dsh-browser-use` engine.
 
 ### Added
 
+- **Attach mode is the default.** Out of the box the server drives the Chrome you already use: turn
+  remote debugging on once (`chrome://inspect/#remote-debugging`) and the agent sees your logins and
+  tabs, with no new profile per run. `--mode launch` keeps the old behaviour of a dedicated browser
+  with a profile under the state root (and is still what the e2e suites use).
+  `--attach-sharing shared` (default) lets several sessions — and several server processes — drive
+  that browser at once, each in its own tab; `exclusive` refuses a second live holder with a fix.
+- **Named, persistent HTTP profiles.** In launch mode an HTTP client may name its profile on the
+  initialize request (`/mcp?profile=<name>` or header `X-Browser-Use-Profile: <name>`): the
+  directory `<state root>/profiles/<server profile>-<name>` is kept across reconnects, so logins
+  survive; different names run concurrently on different profiles, and two live sessions with the
+  same name are refused by the profile lock. Anonymous sessions keep the old behaviour (unique
+  profile, removed when the session ends). Invalid names are refused at initialize.
 - **The action-space browser tools**, `dsh-browser-use`'s direct-mode surface over MCP:
   `browser_open`, `browser_page`, `browser_act`, `browser_eval`, `browser_screenshot`,
   `browser_console`, `browser_goal`, `browser_close`, `browser_doctor`. A page is rendered as one

@@ -12,8 +12,9 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, rmSync } from 'node:fs'
-import { createServer } from 'node:net'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { createServer as createHttpServer } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -26,6 +27,7 @@ const BIN = join(ROOT, 'bin', 'browser-use-mcp.mjs')
 const FIXTURE = pathToFileURL(join(ROOT, 'test', 'fixtures', 'fixture.html')).href
 const STATE_ROOT = process.env.BROWSER_USE_MCP_TEST_HOME || join(tmpdir(), 'browser-use-mcp-e2e-home')
 const PROFILE = 'e2e-http'
+const FIXTURE_BYTES = readFileSync(join(ROOT, 'test', 'fixtures', 'fixture.html'))
 const passed = []
 
 /** A progress line on stderr, so a hang names the step it hung in. */
@@ -42,6 +44,7 @@ function serverEnv(extra = {}) {
   return {
     ...env,
     BROWSER_USE_MCP_HOME: STATE_ROOT,
+    BROWSER_USE_MCP_MODE: 'launch',
     BROWSER_USE_MCP_HEADLESS: '1',
     BROWSER_USE_MCP_PROFILE: PROFILE,
     BROWSER_USE_MCP_LOG_LEVEL: 'info',
@@ -52,7 +55,7 @@ function serverEnv(extra = {}) {
 /** One free TCP port, so parallel test runs do not collide. */
 function freePort() {
   return new Promise((resolve, reject) => {
-    const probe = createServer()
+    const probe = createNetServer()
     probe.once('error', reject)
     probe.listen(0, '127.0.0.1', () => {
       const { port } = probe.address()
@@ -299,6 +302,74 @@ async function main() {
     await stopServer(longNamed, 'long-profile')
   }
   await waitFor(() => profileDirs(longProfile).length === 0, 10_000, 'the long-profile directory to be removed')
+
+  // ---- A client-chosen profile (?profile=) is stable across reconnects, its logins included.
+  const originServer = createHttpServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    response.end(FIXTURE_BYTES)
+  })
+  await new Promise(resolve => originServer.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${originServer.address().port}/`
+  const named = await startServer({ BROWSER_USE_MCP_HTTP_IDLE_MS: '600000' })
+  try {
+    const firstAlice = await connect(`${named.url}?profile=alice`)
+    const opened = await call(firstAlice.client, 'browser_open', { url: origin }, 300_000)
+    assert.equal(opened.isError, false, opened.text)
+    assert.equal(profileDirs(`${PROFILE}-alice`).length, 1, 'a named session uses its own stable profile')
+    await call(firstAlice.client, 'browser_eval', { expression: "localStorage.setItem('named-profile','kept')" })
+    await firstAlice.transport.terminateSession()
+    await waitFor(() => profileDirs(`${PROFILE}-alice`).length === 1, 10_000, 'the named profile to be kept')
+    await new Promise(resolve => setTimeout(resolve, 1_500))
+    assert.equal(profileDirs(`${PROFILE}-alice`).length, 1, 'a named profile is not deleted when its session ends')
+    passed.push('a named profile (?profile=alice) was kept after its MCP session ended')
+
+    const secondAlice = await connect(`${named.url}?profile=alice`)
+    const reopened = await call(secondAlice.client, 'browser_open', { url: origin }, 300_000)
+    assert.equal(reopened.isError, false, reopened.text)
+    const marker = await call(secondAlice.client, 'browser_eval', { expression: "localStorage.getItem('named-profile')" })
+    assert.match(marker.text, /kept/u, 'the named profile kept its page state across the reconnect')
+    passed.push('a reconnect with the same ?profile=alice read back the value stored before it')
+
+    // A different name is a different profile, and both may live at once.
+    const bob = await connect(`${named.url}?profile=bob`)
+    const bobOpened = await call(bob.client, 'browser_open', { url: origin }, 300_000)
+    assert.equal(bobOpened.isError, false, bobOpened.text)
+    const bobMarker = await call(bob.client, 'browser_eval', { expression: "localStorage.getItem('named-profile')" })
+    assert.doesNotMatch(bobMarker.text, /kept/u, 'a different name is a different profile')
+    assert.equal(profileDirs(`${PROFILE}-bob`).length, 1)
+    passed.push('two agents with different ?profile= names ran at the same time on separate profiles')
+
+    // The same name at the same time is refused rather than silently sharing one browser.
+    const aliceAgain = await connect(`${named.url}?profile=alice`)
+    try {
+      const busy = await call(aliceAgain.client, 'browser_open', { url: origin }, 300_000)
+      assert.equal(busy.isError, true, 'a profile already in use is a failed call')
+      assert.match(busy.text, /already driven by another/u, busy.text)
+      passed.push('a second live session on the same ?profile= name was refused')
+    } finally {
+      await aliceAgain.client.close().catch(() => {})
+    }
+
+    // A name that cannot be a directory is rejected at initialize, with the rule to follow.
+    const invalid = new StreamableHTTPClientTransport(new URL(`${named.url}?profile=${encodeURIComponent('bad name')}`))
+    const invalidClient = new Client({ name: 'bad-name', version: '0' }, { capabilities: {} })
+    await assert.rejects(
+      invalidClient.connect(invalid, { timeout: 30_000 }),
+      error => /profile name|Invalid profile/iu.test(error.message),
+      'an invalid profile name must be refused',
+    )
+    passed.push('an invalid ?profile= name was refused with the rule to follow')
+
+    await bob.transport.terminateSession()
+    await secondAlice.transport.terminateSession()
+    await waitFor(() => profileDirs(`${PROFILE}-bob`).length === 1, 10_000, 'the bob profile to be kept')
+  } finally {
+    originServer.close()
+    await stopServer(named, 'named-profiles')
+    for (const directory of profileDirs(`${PROFILE}-alice`).concat(profileDirs(`${PROFILE}-bob`))) {
+      rmSync(join(STATE_ROOT, 'profiles', directory), { recursive: true, force: true })
+    }
+  }
 
   console.log(passed.map((line, index) => `${index + 1}. ${line}`).join('\n'))
   console.log(`\nPASS: ${passed.length} HTTP end-to-end checks; real headless browsers on one endpoint, no model calls`)

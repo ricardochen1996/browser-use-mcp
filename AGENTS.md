@@ -69,7 +69,7 @@ Names and parameters are fixed; descriptions are adapted from `dsh-browser-use`'
 | `browser_screenshot` | — | Visible viewport as an MCP image. Hidden by `--no-screenshots`. |
 | `browser_console` | — | Console entries, exceptions, failed/4xx+ requests (drained per call). |
 | `browser_goal` | `url`, `goal` | One policy run in its own tab; spends model quota. Hidden by `--no-jev`. |
-| `browser_close` | — | Closes the owned tab; the launched browser stays for the next page. |
+| `browser_close` | — | Closes the session's tab. In launch mode the launched browser stays for the next page; in attach mode the browser is never closed. |
 | `browser_doctor` | — | Self-check: interpreter, engine, browser, attach target, config, live session. |
 
 Errors are returned as tool results (`isError: true` or explanatory text), never as transport
@@ -81,7 +81,8 @@ Flags on `browser-use-mcp serve`, each mirrored by a `BROWSER_USE_MCP_*` environ
 
 ```text
 --transport stdio|http     --host --port --path
---mode launch|attach       --cdp-endpoint --executable --profile --user-data-dir --headless
+--mode attach|launch       --attach-sharing exclusive|shared
+--cdp-endpoint --executable --profile --user-data-dir --headless
 --python PATH              --home DIR
 --no-eval --no-screenshots --no-jev
 --jev-decider typesafe|chat
@@ -108,7 +109,7 @@ describeConfig(config) -> string[]                      // doctor lines, never a
 config = {
   command: 'serve'|'doctor'|'install',
   transport: 'stdio'|'http', host, port, path,
-  mode, cdpEndpoint, executablePath, userDataDir, headless, profile,
+  mode, attachSharing, cdpEndpoint, executablePath, userDataDir, headless, profile,
   browserUseMcpHome, pythonPath,
   allowEval, allowScreenshots, jev: {enabled, decider, typesafe:{...}, textModel:{...}},
   requestTimeoutMs, httpIdleMs, logLevel,
@@ -168,8 +169,13 @@ command a person can run.
 
 Owned by the Lead; the exact shapes are in the source and in `docs/architecture.md`. Notable rules:
 
+- The default mode is `attach` (drive the browser the user already runs); `--mode launch` starts a
+  owned browser with a profile under the state root. `--attach-sharing` is `shared` by default and
+  `exclusive` when one live holder must be enforced.
 - One sidecar per browser session; a sidecar that cannot shut down cleanly is never reused (a new
   *generation* is started with a new daemon name).
+- HTTP sessions may name a profile (`/mcp?profile=<name>` or `X-Browser-Use-Profile`); a named
+  profile is stable and kept across reconnects, an anonymous one is per-session and removed.
 - `session.run(operation)` serializes operations; each call gets its own cancellation signal.
 - `session.fingerprintFor(observation)` returns the fingerprint of a known observation, or
   `undefined` for an observation this session did not produce.

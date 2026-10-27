@@ -49,6 +49,8 @@ function serverEnv(extra = {}) {
   return {
     ...env,
     BROWSER_USE_MCP_HOME: STATE_ROOT,
+    BROWSER_USE_MCP_MODE: 'launch',
+    BROWSER_USE_MCP_HEADLESS: '1',
     BROWSER_USE_MCP_LOG_LEVEL: 'info',
     ...extra,
   }

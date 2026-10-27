@@ -63,11 +63,12 @@ block, these are the names to use. `—` means there is no flag or no env spelli
 
 | Flag | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `--mode` | `BROWSER_USE_MCP_MODE` | `launch` (`attach` when a CDP endpoint is set) | `launch` starts a browser this server owns; `attach` drives a browser that is already running. `--mode launch` together with a CDP endpoint is refused rather than silently ignoring one of them. |
-| `--cdp-endpoint` | `BROWSER_USE_MCP_CDP_ENDPOINT` | unset | DevTools endpoint to attach to: an `http(s)` or `ws(s)` URL without whitespace. Setting it without `--mode` implies attach. |
+| `--mode` | `BROWSER_USE_MCP_MODE` | `attach` | `attach` drives the browser that is already running (the default: the Chrome you use, or the one `--cdp-endpoint` names); `launch` starts a dedicated browser this server owns. `--mode launch` together with a CDP endpoint is refused rather than silently ignoring one of them. |
+| `--attach-sharing` | `BROWSER_USE_MCP_ATTACH_SHARING` | `shared` | Attach only. `shared` lets several MCP sessions — and several server processes — drive that one browser at once, each in its own tab and over its own CDP connection. `exclusive` claims the DevTools endpoint for one live holder and refuses the next with a fix. Resolved to `exclusive` in launch mode, which has nothing to share; `shared` together with `--mode launch` is refused. |
+| `--cdp-endpoint` | `BROWSER_USE_MCP_CDP_ENDPOINT` | unset | DevTools endpoint to attach to: an `http(s)` or `ws(s)` URL without whitespace. Setting it without `--mode` implies attach (attach is the default anyway). |
 | `--executable` | `BROWSER_USE_MCP_EXECUTABLE_PATH` | discovered Chrome/Chromium | Browser executable to launch. A path that does not exist falls through to discovery. |
-| `--profile` | `BROWSER_USE_MCP_PROFILE` | `default` | Profile name: `[A-Za-z0-9._-]{1,64}`, and not `.` or `..`. The directory is `<state root>/profiles/<profile>` unless `--user-data-dir` overrides it. Also the prefix of an HTTP session's profile label. |
-| `--user-data-dir` | `BROWSER_USE_MCP_USER_DATA_DIR` | `<state root>/profiles/<profile>` | Launch this browser profile directory instead of the managed one. Not used by HTTP sessions: each gets its own `<profile>-<session suffix>` profile under the state root, removed when the session ends. |
+| `--profile` | `BROWSER_USE_MCP_PROFILE` | `default` | Profile name: `[A-Za-z0-9._-]{1,64}`, and not `.` or `..`. The directory is `<state root>/profiles/<profile>` unless `--user-data-dir` overrides it. Also the prefix of an HTTP session's profile label (`<profile>-<name>` when the client names one). |
+| `--user-data-dir` | `BROWSER_USE_MCP_USER_DATA_DIR` | `<state root>/profiles/<profile>` | Launch this browser profile directory instead of the managed one. Not used by HTTP sessions, which always use `<state root>/profiles/…`: an anonymous session gets `<profile>-<session suffix>` (removed when it ends), a named one `<profile>-<name>` (kept). |
 | `--headless` | `BROWSER_USE_MCP_HEADLESS` | `false` | Launch without a visible window. The env value accepts `1/true/yes/on` and `0/false/no/off`. |
 | `--headed` | — | — | Explicit inverse of `--headless`; `--headless` wins if both are passed. |
 | `--home` | `BROWSER_USE_MCP_HOME` | `~/.browser-use-mcp` | State root: managed environment, install record, browser profiles, attach locks. `~` expands; a relative path resolves against the working directory. |
@@ -196,26 +197,30 @@ is the option for a development environment where the engine is already installe
 
 ## Launch and attach
 
-**Launch** (default). The server starts Chrome/Chromium with its own profile directory under the
-state root. It never touches the browser you browse with, so no Chrome consent prompt appears and
-your logins stay out of automation. Each profile is held by one server at a time: the lock file is
-`<profile dir>/.browser-use-mcp.lock`, and a second server on the same profile gets a tool error
-naming `--profile` with the fix. A lock left by a crashed process is reclaimed.
+**Attach** (default). The server drives a browser that is already running — normally the Chrome you
+browse with, found through the `DevToolsActivePort` file Chrome publishes in its profile. Turn
+remote debugging on in that Chrome first (`chrome://inspect/#remote-debugging`). On macOS that file
+is privacy-protected, so the application running this server needs **Full Disk Access** (System
+Settings → Privacy & Security → Full Disk Access), then be restarted. When the engine cannot read
+the profile, the doctor reports `no_permission` / `no_browser` with the fix rather than guessing.
 
 **Attach with `--cdp-endpoint`.** The server drives a browser someone else started with remote
 debugging on. An `http(s)` endpoint is asked for `/json/version` (the way the first browser call
-asks); a `ws(s)` endpoint is only asked whether something is listening. One external browser is
-only ever driven by one server: an attach claim lives at
-`<state root>/attachments/<hash>.lock`, keyed by the endpoint. Do not point a second CDP client at
-the same browser — Chrome 144+ asks "Allow remote debugging?" once per connection, and two drivers
-race each other on the same page.
+asks); a `ws(s)` endpoint is only asked whether something is listening.
 
-**Attach without an endpoint.** The engine finds the Chrome you browse with through the
-`DevToolsActivePort` file Chrome publishes in its profile. Turn remote debugging on in that Chrome
-first (`chrome://inspect/#remote-debugging`). On macOS that file is privacy-protected, so the
-application running this server needs **Full Disk Access** (System Settings → Privacy & Security →
-Full Disk Access), then be restarted. When the engine cannot read the profile, the doctor reports
-`no_permission` / `no_browser` with the fix rather than guessing.
+**Sharing an attached browser.** `--attach-sharing shared` (default) is what makes one endpoint
+usable by several MCP sessions at once: each session gets its own sidecar, its own daemon and its
+own tab on that browser. Chrome 144+ asks "Allow remote debugging?" once per connection, so N live
+sessions mean N prompts — approve each once and never retry an unanswered one. With
+`--attach-sharing exclusive`, a claim lives at `<state root>/attachments/<hash>.lock` (keyed by the
+DevTools endpoint) and the second live holder is refused with a fix. In shared mode no such lock is
+taken, and two separate server processes may also drive the browser.
+
+**Launch** (`--mode launch`). The server starts Chrome/Chromium with its own profile directory under
+the state root. It never touches the browser you browse with, so no Chrome consent prompt appears
+and your logins stay out of automation. Each profile is held by one server at a time: the lock file
+is `<profile dir>/.browser-use-mcp.lock`, and a second server on the same profile gets a tool error
+naming `--profile` with the fix. A lock left by a crashed process is reclaimed.
 
 In attach mode `browser_close` closes the session's tab and daemon; the browser you attached to is
 never closed. In launch mode the launched browser stays up for the next `browser_open` and is closed
@@ -225,11 +230,18 @@ when the MCP connection ends.
 
 - Default endpoint: `http://127.0.0.1:7331/mcp`. The host and path are configurable, the route is
   exact.
-- Each MCP session (`initialize`) gets its own browser session: its own profile
-  (`<profile>-<session suffix>` under the state root), its own sidecar process, its own tab.
+- Each MCP session (`initialize`) gets its own browser session: its own sidecar process, its own
+  tab, and (in launch mode) its own profile.
+- In launch mode a session can name its profile on the initialize request —
+  `/mcp?profile=<name>` or header `X-Browser-Use-Profile: <name>`, 1–32 characters from
+  `[A-Za-z0-9_-]` — and then the directory `<profile>-<name>` is kept when the session ends, so a
+  reconnect with the same name keeps its logins. Different names run concurrently on different
+  profiles; two live sessions with the same name are refused by the profile lock. An anonymous
+  session gets `<profile>-<session suffix>` and the directory is removed when it ends. An invalid
+  name is refused at initialize with `400`.
 - A session that stays silent longer than `BROWSER_USE_MCP_HTTP_IDLE_MS` (15 minutes by default) has
-  its tab and browser closed and its profile directory removed. An explicit session termination is
-  cleaned up immediately.
+  its tab and browser closed and its anonymous profile directory removed. An explicit session
+  termination is cleaned up immediately. Named profiles are never removed by the server.
 - Requests to another path get `404`; a known session id is required for follow-up requests; an
   unknown or expired one gets `404` with "send initialize again"; a `GET` without a session gets
   `400` with the same guidance. Plain JSON responses are enabled, and an SSE-capable client still

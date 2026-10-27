@@ -20,7 +20,8 @@ describe('resolveConfig defaults', () => {
     assert.equal(config.host, '127.0.0.1')
     assert.equal(config.port, 7331)
     assert.equal(config.path, '/mcp')
-    assert.equal(config.mode, 'launch')
+    assert.equal(config.mode, 'attach')
+    assert.equal(config.attachSharing, 'shared')
     assert.equal(config.profile, 'default')
     assert.equal(config.userDataDir, join(homedir(), '.browser-use-mcp', 'profiles', 'default'))
     assert.equal(config.headless, false)
@@ -77,6 +78,27 @@ describe('connection mode', () => {
       () => resolveConfig({ flags: { mode: 'launch', cdpEndpoint: 'ws://127.0.0.1:9333/devtools/browser/x' }, ...clean() }),
       ConfigError,
     )
+  })
+
+  it('attach sharing defaults to shared and can be made exclusive in attach mode', () => {
+    assert.equal(resolveConfig({ flags: { mode: 'attach' }, ...clean() }).attachSharing, 'shared')
+    assert.equal(
+      resolveConfig({ flags: { mode: 'attach', attachSharing: 'exclusive' }, ...clean() }).attachSharing,
+      'exclusive',
+    )
+    assert.equal(
+      resolveConfig({ env: { BROWSER_USE_MCP_ATTACH_SHARING: 'exclusive' }, cwd: '/work' }).attachSharing,
+      'exclusive',
+    )
+  })
+
+  it('refuses shared attach sharing with launch mode', () => {
+    assert.throws(
+      () => resolveConfig({ flags: { mode: 'launch', attachSharing: 'shared' }, ...clean() }),
+      ConfigError,
+    )
+    // Launch mode simply has nothing to share, so the resolved value is exclusive.
+    assert.equal(resolveConfig({ flags: { mode: 'launch' }, ...clean() }).attachSharing, 'exclusive')
   })
 
   it('accepts attach mode without an endpoint (the browser you browse with)', () => {
@@ -139,6 +161,7 @@ describe('validation', () => {
     [{ flags: { port: '70000' } }, 'port'],
     [{ flags: { path: 'm c p' } }, 'path'],
     [{ flags: { mode: 'sometimes' } }, 'mode'],
+    [{ flags: { attachSharing: 'both' } }, 'attach-sharing'],
     [{ flags: { profile: '../escape' } }, 'profile'],
     [{ flags: { jevDecider: 'oracle' } }, 'decider'],
     [{ flags: { textModelReasoning: 'max' } }, 'reasoning'],
@@ -191,11 +214,13 @@ describe('paths', () => {
 
 describe('connectionFor', () => {
   it('sends only the parameters the sidecar needs for this mode', () => {
-    const launch = connectionFor(resolveConfig(clean()))
-    assert.deepEqual(launch, {
-      mode: 'launch',
+    const attached = connectionFor(resolveConfig(clean()))
+    assert.deepEqual(attached, {
+      mode: 'attach',
       userDataDir: join(homedir(), '.browser-use-mcp', 'profiles', 'default'),
     })
+    const launch = connectionFor(resolveConfig({ flags: { mode: 'launch' }, env: {}, cwd: '/work' }))
+    assert.equal(launch.mode, 'launch')
     const attach = connectionFor(resolveConfig({ flags: { cdpEndpoint: 'http://127.0.0.1:9333', headless: true }, ...clean() }))
     assert.equal(attach.mode, 'attach')
     assert.equal(attach.cdpEndpoint, 'http://127.0.0.1:9333')
@@ -239,5 +264,14 @@ describe('describeConfig', () => {
     const text = describeConfig(config).join('\n')
     assert.ok(text.includes('Streamable HTTP http://127.0.0.1:7331/mcp'))
     assert.ok(text.includes('attach to http://127.0.0.1:9333'))
+    assert.ok(text.includes('attach sharing shared'))
+  })
+
+  it('describes the default attach target and the explicit launch mode', () => {
+    const attached = describeConfig(resolveConfig(clean())).join('\n')
+    assert.ok(attached.includes('attach to the Chrome you browse with'))
+    const launched = describeConfig(resolveConfig({ flags: { mode: 'launch' }, ...clean() })).join('\n')
+    assert.ok(launched.includes('launch Chrome/Chromium'))
+    assert.ok(!launched.includes('attach sharing'), 'launch mode has nothing to share')
   })
 })

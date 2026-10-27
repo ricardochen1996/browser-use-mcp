@@ -109,6 +109,13 @@ start a second CDP client. `--no-eval` withdraws it.
 either `python3.12`–`python3.14`, `python3` (3.12 or newer) on `PATH`, or [uv](https://docs.astral.sh/uv/),
 which can fetch the Python itself.
 
+**Which browser it drives.** The default mode is **attach**: the server drives the Chrome you already
+use, so its logins and tabs are the ones the agent sees. Enable remote debugging once in that Chrome
+(`chrome://inspect/#remote-debugging` → allow); on macOS the application that runs the server also
+needs **Full Disk Access** (System Settings → Privacy & Security → Full Disk Access). Prefer an
+isolated browser? Pass `--mode launch` and the server starts its own Chrome with a profile under the
+state root instead.
+
 The package is **not published to npm yet** — run it from a checkout:
 
 ```bash
@@ -122,8 +129,12 @@ use; GUI clients are more reliable with the absolute path shown below.
 Then check the machine (on a fresh machine the first browser call builds the environment;
 `install` does it eagerly). Its output looks like this, with machine-specific paths shortened:
 
+The example below asks for a dedicated browser (`--mode launch`); with the default attach mode the
+`Connection:` line names the Chrome you browse with instead, and `Status: ready` requires that
+browser to answer its debugging endpoint.
+
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor
+node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor --mode launch
 ```
 
 ```text
@@ -168,8 +179,13 @@ Every absolute path below is this checkout's — substitute where you cloned it.
 Claude Code:
 
 ```bash
+# Use the Chrome you already browse with (the default attach mode):
 claude mcp add --scope user browser-use \
-  --env BROWSER_USE_MCP_HEADLESS=1 \
+  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+
+# Or give the agent a dedicated, unseen browser instead:
+claude mcp add --scope user browser-use \
+  --env BROWSER_USE_MCP_MODE=launch --env BROWSER_USE_MCP_HEADLESS=1 \
   -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
 ```
 
@@ -219,8 +235,8 @@ An agent should report a failure, not retry it blindly.
 
 | Transport | What one agent gets | What two agents get |
 | --- | --- | --- |
-| **stdio** (default) | One server process, one browser | Two processes, two browsers — nothing shared |
-| **Streamable HTTP** | One MCP session, one browser (its own profile and sidecar) | One long-running server, one browser per MCP session |
+| **stdio** (default) | One server process, one browser session | Two processes; in attach mode both drive the same browser in their own tabs, in launch mode two browsers |
+| **Streamable HTTP** | One MCP session, one browser session | One long-running server; attach mode shares the running browser, launch mode gives each session its own tab of a dedicated browser |
 
 Start an HTTP endpoint when several agents should share one installed server:
 
@@ -230,34 +246,53 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
 ```
 
 The endpoint is `http://127.0.0.1:7331/mcp` by default. Each MCP `initialize` session gets its own
-browser, and a session that goes quiet for 15 minutes has its browser closed and its profile removed
-(`BROWSER_USE_MCP_HTTP_IDLE_MS` overrides the timeout). There is no authentication: the default bind
-is loopback, and a non-loopback bind logs a warning at startup. Put it behind a tunnel or proxy you
-control if it must leave the machine.
+browser session; in the default attach mode all of them drive the Chrome you already use (see
+`--attach-sharing` above), while `--mode launch` gives every session its own tab of a dedicated
+browser. A session that goes quiet for 15 minutes has its browser closed and its anonymous profile
+removed (`BROWSER_USE_MCP_HTTP_IDLE_MS` overrides the timeout). There is no authentication: the
+default bind is loopback, and a non-loopback bind logs a warning at startup. Put it behind a tunnel
+or proxy you control if it must leave the machine.
+
+**Named profiles (launch mode).** In launch mode an anonymous HTTP session gets a throwaway profile
+that is deleted when the session ends. A client that wants its logins to survive reconnects names its
+profile on the initialize request:
+
+```text
+http://127.0.0.1:7331/mcp?profile=claude      (or header X-Browser-Use-Profile: claude)
+```
+
+The named profile lives at `<state root>/profiles/<server profile>-<name>` and is kept when the
+session ends; the next session with the same name reuses it. Different names run at the same time on
+different profiles, and two live sessions with the same name are refused by the profile lock rather
+than silently sharing one browser. Names are 1–32 characters from `[A-Za-z0-9_-]`.
 
 Two servers configured for the **same browser profile** are refused rather than silently sharing a
 browser: the first holds a lock in the profile directory and the second gets a tool error naming
 `--profile` and the fix. A lock left behind by a crashed process is reclaimed.
 
-### Attach to your own Chrome (optional)
+### Which browser: attach (default) or launch
 
-By default the server **launches a dedicated Chrome** with its own profile under the state root. It
-never touches the browser you browse with, so no consent prompt appears and your logins stay out of
-automation.
+**`attach` (default)** drives the Chrome you already use:
 
-When you do want your own browser:
-
-- **`--mode attach --cdp-endpoint http://127.0.0.1:9333`** (or a `ws://…` endpoint) drives a browser
-  you started with remote debugging on.
-- **`--mode attach`** with no endpoint finds the Chrome you browse with through the
-  `DevToolsActivePort` Chrome publishes in its profile. Turn remote debugging on in that Chrome
-  first (`chrome://inspect/#remote-debugging`). On macOS that file is privacy-protected, so the
+- With no endpoint, the server finds that browser through the `DevToolsActivePort` Chrome publishes
+  in its profile. Turn remote debugging on in that Chrome first
+  (`chrome://inspect/#remote-debugging`). On macOS that file is privacy-protected, so the
   application running this server needs **Full Disk Access** (System Settings → Privacy & Security →
   Full Disk Access), then must be restarted.
+- **`--cdp-endpoint http://127.0.0.1:9333`** (or a `ws://…` endpoint) drives a specific browser you
+  started with remote debugging on.
+- `--attach-sharing shared` (default) lets several MCP sessions — and several server processes —
+  drive that browser at once, each in its own tab over its own CDP connection. Chrome 144+ asks
+  "Allow remote debugging?" once per connection, so two agents mean at least two prompts; approve
+  each once and never retry an unanswered one. `--attach-sharing exclusive` refuses the second live
+  holder instead, with a fix, which is the safer choice when two agents must never touch the same
+  browser.
+- `browser_close` stops the session's tab and daemon and never closes the attached browser.
 
-One external browser is only ever driven by one server: a session claims its DevTools endpoint, and
-a second server on the same endpoint is refused. `browser_close` stops the session's tab and daemon
-and never closes the attached browser.
+**`--mode launch`** starts a dedicated Chrome with its own profile under the state root, so your
+everyday browser and its logins stay out of automation. `browser_close` keeps that browser for the
+next `browser_open`; the server closes it when the connection ends. It is the right mode for a
+headless CI machine, or for an agent that should not see your real sessions.
 
 ---
 
@@ -271,7 +306,8 @@ are present. The exhaustive tables, parsing rules, defaults and exit codes are i
 | Setting | Flag(s) | Env | Default |
 | --- | --- | --- | --- |
 | Transport | `--transport`, `--host`, `--port`, `--path` | `BROWSER_USE_MCP_TRANSPORT`, `BROWSER_USE_MCP_HOST`, `BROWSER_USE_MCP_PORT`, `BROWSER_USE_MCP_PATH` | `stdio`, `127.0.0.1`, `7331`, `/mcp` |
-| Own or attach | `--mode`, `--cdp-endpoint` | `BROWSER_USE_MCP_MODE`, `BROWSER_USE_MCP_CDP_ENDPOINT` | `launch` |
+| Own or attach | `--mode`, `--cdp-endpoint` | `BROWSER_USE_MCP_MODE`, `BROWSER_USE_MCP_CDP_ENDPOINT` | `attach` |
+| Attach sharing | `--attach-sharing` | `BROWSER_USE_MCP_ATTACH_SHARING` | `shared` (attach only) |
 | Browser window | `--headless` | `BROWSER_USE_MCP_HEADLESS` | visible window |
 | Profile | `--profile`, `--user-data-dir` | `BROWSER_USE_MCP_PROFILE`, `BROWSER_USE_MCP_USER_DATA_DIR` | `default` under the state root |
 | State root | `--home` | `BROWSER_USE_MCP_HOME` | `~/.browser-use-mcp` |
@@ -287,8 +323,8 @@ State root layout:
 ~/.browser-use-mcp/
 ├── env/                        managed Python virtualenv (engine + browser-harness)
 ├── install.json                what was installed, with which strategy and Python
-├── profiles/<name>/            launched Chrome profiles (logins, tabs)
-└── attachments/<hash>.lock     attach-mode claims, one per DevTools endpoint
+├── profiles/<name>/            launched Chrome profiles (logins, tabs); named HTTP profiles too
+└── attachments/<hash>.lock     exclusive attach-mode claims, one per DevTools endpoint
 ```
 
 ### The Jev policy
@@ -336,7 +372,10 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doc
 - **A profile is already in use.** The message names the profile and `--profile`: stop the other
   server, or give this one its own `--profile <name>`. Two servers driving one browser profile is
   the one configuration the server refuses on purpose.
-- **Attach mode cannot find the browser.** The doctor reports `attach mode drives …` with the reason.
+- **Attach mode cannot find the browser.** This is the default mode: open
+  `chrome://inspect/#remote-debugging` in the Chrome you use and allow remote debugging, or start the
+  server with `--mode launch` for a dedicated browser. The doctor reports `attach mode drives …` with
+  the reason.
   Start that browser with remote debugging on (`chrome://inspect/#remote-debugging`), correct
   `--cdp-endpoint`, or use `--mode launch`. On macOS, allowing this app Full Disk Access is what lets
   it read your Chrome's profile.
@@ -368,8 +407,9 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doc
   bind is logged as a warning; only expose it on a trusted network or behind a tunnel you control.
 - **Keys stay out of logs and tools.** The doctor prints only `set`/`unset`; credentials are handed
   to the sidecar per model-spending request and are not inherited by unrelated calls.
-- **The launched browser has its own profile.** It is not your everyday Chrome profile unless you
-  explicitly attach with `--mode attach`.
+- **The default mode drives your own Chrome**, logins included — that is what attach mode is for.
+  Use `--mode launch` when an agent should work in an isolated browser whose profile lives under the
+  state root instead.
 - **One connection, one driver.** Do not start another CDP client against the same browser; Chrome
   approves each connection separately and two drivers race each other.
 

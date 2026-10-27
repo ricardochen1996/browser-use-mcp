@@ -39,6 +39,7 @@ describe('flags', () => {
       '--port', '7444',
       '--path', '/browser',
       '--mode', 'attach',
+      '--attach-sharing', 'exclusive',
       '--cdp-endpoint', 'http://127.0.0.1:9333',
       '--executable', '/Applications/Chromium.app/Contents/MacOS/Chromium',
       '--profile', 'work',
@@ -65,6 +66,7 @@ describe('flags', () => {
     assert.equal(flags.port, '7444')
     assert.equal(flags.path, '/browser')
     assert.equal(flags.mode, 'attach')
+    assert.equal(flags.attachSharing, 'exclusive')
     assert.equal(flags.cdpEndpoint, 'http://127.0.0.1:9333')
     assert.equal(flags.executablePath, '/Applications/Chromium.app/Contents/MacOS/Chromium')
     assert.equal(flags.profile, 'work')

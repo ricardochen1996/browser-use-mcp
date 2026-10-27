@@ -97,28 +97,42 @@ the sidecar's Browser Harness daemon is the only one. `browser_eval` runs throug
 descriptions and the server instructions repeat the rule, because a model that "cannot find a tool"
 for a programmatic read is exactly the model that starts a websocket.
 
-By default the server launches a dedicated Chrome with its own profile directory, so the browser you
-use is never touched and no prompt appears at all. `--mode attach --cdp-endpoint …` (or attach to the
-Chrome you browse with) is the explicit opt-in.
+The default mode is **attach**: the server drives the Chrome you already use (or the browser a
+`--cdp-endpoint` names). That is one session, one daemon, one connection — the rule still holds. The
+opt-in in the other direction is `--mode launch`, which starts a dedicated Chrome with its own
+profile directory, so the browser you use is never touched and no prompt appears at all.
 
 ## Sessions and isolation
 
-An MCP connection is a session, and a session owns one browser: its own profile directory, its own
-DevTools connection, its own tabs.
+An MCP connection is a session, and a session owns a browser session: its own sidecar, its own
+DevTools connection, its own tab, and — in launch mode — its own profile directory.
 
 | Transport | What one agent gets | What two agents get |
 | --- | --- | --- |
-| stdio (default) | one server process, one browser | two processes, two browsers — nothing shared |
-| Streamable HTTP | one MCP session, one browser (its own profile and sidecar) | one long-running server, one browser per MCP session |
+| stdio (default) | one server process, one browser session | two processes; in attach mode both drive the same browser in their own tabs, in launch mode two browsers |
+| Streamable HTTP | one MCP session, one browser session | one long-running server; attach mode shares the running browser, launch mode gives each session its own tab of a dedicated browser |
 
-Two servers configured with the **same profile** are refused rather than silently sharing a browser:
-the first holds a lock file in the profile directory, and the second gets a tool error naming
-`--profile`. A lock left by a crashed process is reclaimed automatically. Attach mode is guarded the
-same way, per DevTools endpoint, so one external browser is only ever driven by one server.
+**Attach mode (default)** means every session drives the same browser you already use. That browser
+is shared by default (`--attach-sharing shared`): each session gets its own sidecar, daemon and tab,
+and Chrome asks "Allow remote debugging?" once per connection, so N live sessions mean N prompts.
+`--attach-sharing exclusive` claims the DevTools endpoint through a lock file under
+`<state root>/attachments/` and refuses the second live holder with a fix.
+
+**Launch mode** gives every session a browser this server owns. Two servers configured with the
+**same profile** are refused rather than silently sharing a browser: the first holds a lock file in
+the profile directory, and the second gets a tool error naming `--profile`. A lock left by a crashed
+process is reclaimed automatically.
+
+**Named profiles.** In launch mode an anonymous HTTP session's profile
+(`profiles/<profile>-<session suffix>`) is removed when the session ends. A client that names its
+profile (`/mcp?profile=<name>` or `X-Browser-Use-Profile: <name>` on the initialize request) gets the
+stable `profiles/<profile>-<name>` instead: it survives reconnects, its logins with it, and two live
+sessions with the same name are refused by the profile lock rather than silently sharing one
+browser. This is how several agents share one HTTP endpoint while each keeps its own logins.
 
 The HTTP transport closes a session's browser after 15 minutes of silence
 (`BROWSER_USE_MCP_HTTP_IDLE_MS` overrides that), so a client that disappears does not leave Chrome
-running forever.
+running forever. Named profiles are kept; only anonymous session directories are removed.
 
 ## The Python environment
 
@@ -141,8 +155,8 @@ The state root is `${BROWSER_USE_MCP_HOME:-~/.browser-use-mcp}`:
 ~/.browser-use-mcp/
 ├── env/                 managed Python virtualenv (engine + browser-harness)
 ├── install.json         what was installed, with which strategy and Python
-├── profiles/<name>/     launched Chrome profiles (logins, tabs)
-└── attachments/<hash>.lock   attach-mode claims, one per DevTools endpoint
+├── profiles/<name>/     launched and named profiles (logins, tabs)
+└── attachments/<hash>.lock   exclusive attach-mode claims, one per DevTools endpoint
 ```
 
 `browser-use-mcp install` builds the environment eagerly; `browser-use-mcp doctor` reports it without

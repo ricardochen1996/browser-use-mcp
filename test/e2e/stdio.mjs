@@ -36,6 +36,8 @@ function serverEnv(extra = {}) {
     ...env,
     BROWSER_USE_MCP_HOME: STATE_ROOT,
     BROWSER_USE_MCP_HEADLESS: '1',
+    // This suite is about a browser the server owns; the default mode is attach now.
+    BROWSER_USE_MCP_MODE: 'launch',
     BROWSER_USE_MCP_PROFILE: PROFILE,
     BROWSER_USE_MCP_LOG_LEVEL: 'info',
     ...extra,

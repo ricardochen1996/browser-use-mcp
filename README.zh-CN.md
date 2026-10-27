@@ -79,6 +79,8 @@ Observation 3. Targets below are valid only for this observation.
 
 **需要** Node.js `^22.19.0 || >=24.0.0`、Chrome 或 Chromium，以及一个能拿到 Python 3.12+ 的途径：`PATH` 上的 `python3.12`–`python3.14`、`python3`（3.12 或更新），或者 [uv](https://docs.astral.sh/uv/)（它能自己下载 Python）。
 
+**驱动哪个浏览器。** 默认是 **attach** 模式：服务器直接驱动你日常用的 Chrome，agent 看到的登录态和标签页就是你自己的。先在那个 Chrome 里打开一次远程调试（`chrome://inspect/#remote-debugging` → 允许）；macOS 上还需要给运行服务器的应用**完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。想要一个隔离的浏览器，就加 `--mode launch`，服务器会在状态根下用自己的 profile 启动一个专属 Chrome。
+
 这个包**还没有发布到 npm**——从 checkout 直接运行：
 
 ```bash
@@ -89,11 +91,12 @@ npm install
 在 checkout 里执行 `npm link` 还会把 `browser-use-mcp` 命令放进 `PATH`，方便在终端里用；
 GUI 客户端用下面给出的绝对路径更可靠。
 
-然后检查这台机器（新机器上首次浏览器调用会构建环境；`install` 可以提前做）。输出大致如下，
-与机器相关的路径做了省略：
+然后检查这台机器（新机器上首次浏览器调用会构建环境；`install` 可以提前做）。下面的例子用
+`--mode launch` 看专属浏览器；默认 attach 模式下 `Connection:` 行会写成你所连的 Chrome，且
+`Status: ready` 要求那个浏览器能应答调试端点。输出大致如下，与机器相关的路径做了省略：
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor
+node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor --mode launch
 ```
 
 ```text
@@ -182,8 +185,8 @@ Claude Code、Claude Desktop、Cursor、Codex、DSH 以及 Streamable HTTP 的�
 
 | 传输 | 一个 agent 得到什么 | 两个 agent 得到什么 |
 | --- | --- | --- |
-| **stdio**（默认） | 一个服务器进程、一个浏览器 | 两个进程、两个浏览器——什么都不共享 |
-| **Streamable HTTP** | 一个 MCP 会话、一个浏览器（自己的 profile 和 sidecar） | 一个长期运行的服务器，每个 MCP 会话一个浏览器 |
+| **stdio**（默认） | 一个服务器进程、一个浏览器会话 | 两个进程：attach 模式下各开一个标签页驱动同一个浏览器，launch 模式下是两个浏览器 |
+| **Streamable HTTP** | 一个 MCP 会话、一个浏览器会话 | 一个常驻服务器：attach 模式共用正在运行的浏览器，launch 模式下每个会话在专属浏览器里各用一个标签页 |
 
 想多个 agent 共用一个装好的服务器时，起一个 HTTP 端点：
 
@@ -192,20 +195,26 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
   --transport http --host 127.0.0.1 --port 7331 --path /mcp
 ```
 
-端点默认是 `http://127.0.0.1:7331/mcp`。每个 MCP `initialize` 会话都有自己的浏览器；一个静默 15 分钟的会话会被关掉浏览器并删除它的 profile（`BROWSER_USE_MCP_HTTP_IDLE_MS` 可以改这个时限）。它没有认证：默认只绑回环地址，绑到非回环地址时启动日志会给出警告。确实要离开本机，就放在你自己控制的隧道或反向代理后面。
+端点默认是 `http://127.0.0.1:7331/mcp`。每个 MCP `initialize` 会话都有自己的浏览器会话；默认 attach 模式下它们都驱动你日常用的 Chrome（见下面的 `--attach-sharing`），`--mode launch` 则让每个会话在专属浏览器里各用一个标签页。静默 15 分钟的会话会被关掉浏览器，并删除它的匿名 profile（`BROWSER_USE_MCP_HTTP_IDLE_MS` 可以改这个时限）。它没有认证：默认只绑回环地址，绑到非回环地址时启动日志会给出警告。确实要离开本机，就放在你自己控制的隧道或反向代理后面。
 
-两个服务器配了**同一个浏览器 profile** 时会被拒绝，而不是悄悄共用一个浏览器：第一个在 profile 目录里持锁，第二个得到一条写明 `--profile` 和修法的工具错误。崩溃进程留下的锁会被自动回收。
+**命名 profile（launch 模式）。** launch 模式下，匿名的 HTTP 会话拿到的是临时 profile，会话结束就删除。希望登录态跨重连保留的客户端，在 initialize 请求上给自己的 profile 起个名字：
 
-### 接到你自己的 Chrome（可选）
+```text
+http://127.0.0.1:7331/mcp?profile=claude      （或请求头 X-Browser-Use-Profile: claude）
+```
 
-默认情况下服务器**启动一个专用 Chrome**，profile 放在状态根目录下。它不碰你日常用的浏览器，因此不会出现授权弹窗，你的登录态也不会进入自动化。
+命名 profile 位于 `<状态根>/profiles/<服务器 profile>-<名字>`，会话结束后保留，同名的新会话会复用它。不同名字可以同时跑在各自 profile 上；两个同时存活的同名会话会被 profile 锁拒绝，而不是悄悄共用一个浏览器。名字是 1–32 个 `[A-Za-z0-9_-]` 字符。
 
-确实想用你自己的浏览器时：
+### 浏览器：attach（默认）还是 launch
 
-- **`--mode attach --cdp-endpoint http://127.0.0.1:9333`**（或 `ws://…` 端点）驱动一个你开着远程调试的浏览器。
-- **`--mode attach`** 不带端点时，通过 Chrome 写进 profile 的 `DevToolsActivePort` 找到你日常用的 Chrome。先在那个 Chrome 里打开远程调试（`chrome://inspect/#remote-debugging`）。在 macOS 上这个文件受隐私保护，所以运行本服务器的应用需要**完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限），然后重启它。
+**`attach`（默认）**驱动你日常用的 Chrome：
 
-一个外部浏览器只由一个服务器驱动：会话会为自己的 DevTools 端点持有一份 claim，第二个连到同一端点的服务器会被拒绝。`browser_close` 只停本会话的标签页和 daemon，从不关闭所连的浏览器。
+- 不带端点时，服务器通过 Chrome 写进 profile 的 `DevToolsActivePort` 找到它。先在那个 Chrome 里打开远程调试（`chrome://inspect/#remote-debugging`）。macOS 上这个文件受隐私保护，所以运行本服务器的应用需要**完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限），然后重启它。
+- **`--cdp-endpoint http://127.0.0.1:9333`**（或 `ws://…` 端点）驱动一个你指定、开着远程调试的浏览器。
+- `--attach-sharing shared`（默认）允许同时有多个 MCP 会话——甚至多个服务器进程——驱动同一个浏览器，各自一个标签页、各自一条 CDP 连接。Chrome 144+ 对每条连接都会问一次 “Allow remote debugging?”，所以两个 agent 至少会有两次弹窗；每个只批准一次，没被批准的弹窗不要重试。`--attach-sharing exclusive` 则拒绝第二个持有者，并给出修法——当两个 agent 绝不能碰同一个浏览器时，这是更安全的选择。
+- `browser_close` 只停本会话的标签页和 daemon，从不关闭所连的浏览器。
+
+**`--mode launch`** 会在状态根下用自己的 profile 启动一个专属 Chrome，日常浏览器和登录态不进入自动化。`browser_close` 把这个浏览器留给下一次 `browser_open`，连接结束时服务器关闭它。无头 CI 机器，或者不该看到你真实会话的 agent，适合用这个模式。
 
 ---
 
@@ -216,7 +225,8 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
 | 设置 | Flag | 环境变量 | 默认值 |
 | --- | --- | --- | --- |
 | 传输 | `--transport`、`--host`、`--port`、`--path` | `BROWSER_USE_MCP_TRANSPORT`、`BROWSER_USE_MCP_HOST`、`BROWSER_USE_MCP_PORT`、`BROWSER_USE_MCP_PATH` | `stdio`、`127.0.0.1`、`7331`、`/mcp` |
-| 自己启动或接入 | `--mode`、`--cdp-endpoint` | `BROWSER_USE_MCP_MODE`、`BROWSER_USE_MCP_CDP_ENDPOINT` | `launch` |
+| 自己启动或接入 | `--mode`、`--cdp-endpoint` | `BROWSER_USE_MCP_MODE`、`BROWSER_USE_MCP_CDP_ENDPOINT` | `attach` |
+| attach 共享 | `--attach-sharing` | `BROWSER_USE_MCP_ATTACH_SHARING` | `shared`（仅 attach） |
 | 浏览器窗口 | `--headless` | `BROWSER_USE_MCP_HEADLESS` | 显示窗口 |
 | Profile | `--profile`、`--user-data-dir` | `BROWSER_USE_MCP_PROFILE`、`BROWSER_USE_MCP_USER_DATA_DIR` | 状态根下的 `default` |
 | 状态根 | `--home` | `BROWSER_USE_MCP_HOME` | `~/.browser-use-mcp` |
@@ -232,7 +242,7 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
 ~/.browser-use-mcp/
 ├── env/                        托管 Python 虚拟环境（引擎 + browser-harness）
 ├── install.json                装了什么，用的哪种策略、哪个 Python
-├── profiles/<name>/            启动的 Chrome profile（登录态、标签页）
+├── profiles/<name>/            启动的 Chrome profile（登录态、标签页）；HTTP 命名 profile 也在这里
 └── attachments/<hash>.lock     attach 模式的 claim，每个 DevTools 端点一份
 ```
 
@@ -269,7 +279,7 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doc
 ```
 
 - **profile 已被占用。** 报错会点名 profile 和 `--profile`：停掉另一个服务器，或者给这个服务器一个自己的 `--profile <name>`。两个服务器驱动同一个浏览器 profile，是服务器会主动拒绝的唯一一种配置。
-- **attach 模式找不到浏览器。** doctor 会打印 `attach mode drives …` 和原因。把那个浏览器开着远程调试（`chrome://inspect/#remote-debugging`），改正 `--cdp-endpoint`，或者改用 `--mode launch`。macOS 上，给这个应用完全磁盘访问权限，它才能读你 Chrome 的 profile。
+- **attach 模式找不到浏览器。** 这是默认模式：在你日常的 Chrome 里打开 `chrome://inspect/#remote-debugging` 并允许远程调试，或者用 `--mode launch` 让服务器起一个专属浏览器。doctor 会打印 `attach mode drives …` 和原因。
 - **引擎还没装。** 首次使用会把它装进状态根；想提前装，就在 checkout 里跑 `node bin/browser-use-mcp.mjs install`，或者在 agent 里调 `browser_doctor` 并带上 `install: true`。走代理的话，给运行服务器的进程设 `HTTPS_PROXY`。
 - **`Jev … NOT READY`。** 设 `TYPESAFE_API_KEY`（或用 `--jev-decider chat` 配 `TEXT_MODEL_*`）。浏览器工具不需要它。
 - **客户端里看不到工具。** 客户端的 `env`/`args` 没送到服务器，或者改完没重启。在终端里跑同一条命令看 stderr；配置错误会以退出码 `2` 结束并点名出错的字段。
@@ -284,7 +294,7 @@ node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doc
 - **`browser_eval` 按设计就是代码执行。** 它在页面里跑一个表达式，走本会话自己的连接，没有用户手势。想让模型输出永远不可能变成代码，就用 `--no-eval` 收回它；其余工具照常工作。
 - **HTTP 传输没有认证。** 把它绑在回环地址上（默认如此）。任何非回环绑定都会在日志里给出警告；只在可信网络或你自己控制的隧道后面暴露它。
 - **密钥不进日志、不进工具结果。** doctor 只打印 `set`/`unset`；凭据只交给消耗配额的那一次 sidecar 请求，不会被无关调用继承。
-- **启动的浏览器有自己的 profile。** 除非你显式用 `--mode attach` 接入，否则它不是你的日常 Chrome profile。
+- **默认模式驱动的是你自己的 Chrome**，包括登录态——attach 模式就是为了这个。当 agent 应该在隔离浏览器里工作、profile 只属于状态根时，用 `--mode launch`。
 - **一条连接，一个驱动。** 不要对同一个浏览器再起一个 CDP 客户端；Chrome 对每个连接单独授权，两个驱动会互相抢页面。
 
 ---

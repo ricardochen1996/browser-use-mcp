@@ -4,9 +4,10 @@
  * The browser is started here with `--remote-debugging-port` and its own throwaway profile, exactly
  * as a person's Chrome would be started for `chrome://inspect` remote debugging. The server is then
  * told `--mode attach --cdp-endpoint http://127.0.0.1:<port>`: it must drive that browser without
- * ever owning it — closing the tab it opened must not close the browser, a second server on the same
- * endpoint must be refused instead of fighting over the tabs, and the Chrome process must still be
- * running after both servers are gone (this test kills it in its cleanup).
+ * ever owning it — closing the tab it opened must not close the browser, and the Chrome process must
+ * still be running after the servers are gone (this test kills it in its cleanup). With
+ * `--attach-sharing exclusive` a second server on the same endpoint is refused; with the default
+ * (shared) two servers may drive the browser at once, each in its own tab.
  *
  * No model calls: every outcome is read back from a later observation, and the only network traffic
  * is on loopback (the test's `/json/version` probes and the engine's CDP connection).
@@ -172,12 +173,21 @@ async function stopChrome(launched) {
   }
 }
 
-/** One server child plus the MCP client on it, attached to one DevTools endpoint. */
-async function startServer(port) {
+/**
+ * One server child plus the MCP client on it, attached to one DevTools endpoint.
+ * @param {number} port - the Chrome DevTools port.
+ * @param {object} [options]
+ * @param {'exclusive'|'shared'|null} [options.sharing] - `exclusive` (the assertions about the
+ *   ownership lock), `shared`, or `null` to pass no flag and exercise the default.
+ */
+async function startServer(port, { sharing = 'exclusive' } = {}) {
   const endpoint = `http://127.0.0.1:${port}`
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [BIN, '--mode', 'attach', '--cdp-endpoint', endpoint],
+    args: [
+      BIN, '--mode', 'attach', '--cdp-endpoint', endpoint,
+      ...(sharing === null ? [] : ['--attach-sharing', sharing]),
+    ],
     env: serverEnv(),
     stderr: 'pipe',
   })
@@ -318,7 +328,7 @@ async function main() {
     second = await startServer(port)
     const busy = await call(second.client, 'browser_open', { url: FIXTURE })
     assert.equal(busy.isError, true, 'a second driver on one DevTools endpoint is a failed call')
-    assert.match(busy.text, /already attached by another browser-use-mcp process/u, busy.text)
+    assert.match(busy.text, /already attached by another live session or browser-use-mcp process/u, busy.text)
     assert.match(busy.text, /--mode launch/u, busy.text)
     const secondPid = second.transport.pid
     await second.client.close()
@@ -348,6 +358,26 @@ async function main() {
       if (laterPid !== null) assert.ok(await waitGone(laterPid), 'the later server exited')
     }
     passed.push('the released endpoint could be attached by a later server')
+
+    // 12. The default sharing is `shared`: two servers may drive the attached browser at once, each
+    // with its own daemon and its own tab, and neither takes the exclusive lock file.
+    const sharedA = await startServer(port, { sharing: null })
+    const sharedB = await startServer(port, { sharing: null })
+    try {
+      const openedA = await call(sharedA.client, 'browser_open', { url: FIXTURE }, 120_000)
+      const openedB = await call(sharedB.client, 'browser_open', { url: FIXTURE }, 120_000)
+      assert.equal(openedA.isError, false, openedA.text)
+      assert.equal(openedB.isError, false, openedB.text)
+      assert.ok(observationOf(openedA.text) >= 1 && observationOf(openedB.text) >= 1)
+      assert.ok(!existsSync(attachLockPath(`http://127.0.0.1:${port}`)), 'shared attach takes no exclusive lock')
+      passed.push('the default attach sharing let two servers drive the attached browser at once')
+    } finally {
+      for (const server of [sharedA, sharedB]) {
+        const pid = server.transport.pid
+        await server.client.close().catch(() => {})
+        if (pid !== null) await waitGone(pid)
+      }
+    }
   } finally {
     if (first !== undefined) {
       const pid = first.transport.pid

@@ -41,6 +41,16 @@ If you prefer a command name over an absolute path, `npm link` in the checkout p
 the reliable form. Every snippet below is **stdio** unless it says otherwise; the server's default
 transport is stdio, one browser per server process.
 
+Two defaults decide what the agent sees:
+
+- **Transport stdio** — the client starts its own server process, and only that client uses it.
+- **Mode attach** — the server drives the Chrome you already use, so the agent sees your logins and
+  tabs. Enable remote debugging once in that Chrome (`chrome://inspect/#remote-debugging` → allow);
+  on macOS the application running the server also needs Full Disk Access. If you would rather give
+  the agent a dedicated browser, add `BROWSER_USE_MCP_MODE=launch` (and `BROWSER_USE_MCP_HEADLESS=1`
+  for no window). `BROWSER_USE_MCP_PROFILE` and `BROWSER_USE_MCP_HEADLESS` only mean something in
+  launch mode — the snippets below set `launch` where they use them.
+
 ---
 
 ## Claude Code
@@ -50,7 +60,13 @@ Two equivalent ways to wire it.
 ### CLI
 
 ```bash
+# Attach mode (the default): use the Chrome you browse with.
 claude mcp add --scope user browser-use \
+  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+
+# Launch mode: a dedicated headless browser with its own profile.
+claude mcp add --scope user browser-use \
+  --env BROWSER_USE_MCP_MODE=launch \
   --env BROWSER_USE_MCP_HEADLESS=1 \
   --env BROWSER_USE_MCP_PROFILE=claude-code \
   -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
@@ -71,6 +87,7 @@ claude mcp add --scope user browser-use \
       "command": "node",
       "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
       "env": {
+        "BROWSER_USE_MCP_MODE": "launch",
         "BROWSER_USE_MCP_HEADLESS": "1",
         "BROWSER_USE_MCP_PROFILE": "claude-code"
       }
@@ -94,7 +111,7 @@ trailing commas):
       "command": "node",
       "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
       "env": {
-        "BROWSER_USE_MCP_HEADLESS": "0",
+        "BROWSER_USE_MCP_MODE": "launch",
         "BROWSER_USE_MCP_PROFILE": "claude-desktop"
       }
     }
@@ -102,9 +119,11 @@ trailing commas):
 }
 ```
 
-Fully quit and restart Claude Desktop after saving. The browser window appears when the model calls
-`browser_open`, not at startup. Give each client its own `BROWSER_USE_MCP_PROFILE` if several
-clients will run at once — two servers on one profile are refused by design.
+Fully quit and restart Claude Desktop after saving. In launch mode the browser window appears when
+the model calls `browser_open`, not at startup; in attach mode it is already the Chrome you use.
+`BROWSER_USE_MCP_MODE=launch` is what makes this client use a dedicated profile — give each client
+its own `BROWSER_USE_MCP_PROFILE` if several clients will launch at once (two servers on one profile
+are refused by design).
 
 ---
 
@@ -120,6 +139,7 @@ Project configuration goes in `.cursor/mcp.json`; to make it available everywher
       "command": "node",
       "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
       "env": {
+        "BROWSER_USE_MCP_MODE": "launch",
         "BROWSER_USE_MCP_HEADLESS": "1",
         "BROWSER_USE_MCP_PROFILE": "cursor"
       }
@@ -144,6 +164,7 @@ args = ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
 startup_timeout_sec = 120
 
 [mcp_servers.browser-use.env]
+BROWSER_USE_MCP_MODE = "launch"
 BROWSER_USE_MCP_HEADLESS = "1"
 BROWSER_USE_MCP_PROFILE = "codex"
 ```
@@ -174,6 +195,7 @@ DSH loads MCP servers through its `@deepseek-ai/dsh-mcp-client` plugin, configur
         args:
           - /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
         env:
+          BROWSER_USE_MCP_MODE: launch
           BROWSER_USE_MCP_HEADLESS: '1'
           BROWSER_USE_MCP_PROFILE: dsh
         failOnStartupError: true
@@ -200,6 +222,7 @@ So Jev credentials must be listed explicitly in `env` — they do not leak in fr
 ```yaml
         # Jev credentials must be repeated in env: ambient names matching KEY/TOKEN are scrubbed.
         env:
+          BROWSER_USE_MCP_MODE: launch
           BROWSER_USE_MCP_HEADLESS: '1'
           TYPESAFE_API_KEY: !!js process.env.TYPESAFE_API_KEY
 ```
@@ -221,6 +244,7 @@ Desktop and Cursor snippets, with the most common knobs shown:
       "command": "node",
       "args": [
         "/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs",
+        "--mode", "launch",
         "--headless",
         "--profile", "my-agent"
       ],
@@ -305,24 +329,37 @@ names the variable, not a crash.
 ## One shared HTTP server
 
 Running a long-lived HTTP endpoint is how several agents share one installed server instead of each
-starting a stdio process. Each MCP session still gets **its own browser** — its own profile, sidecar
-and tab — so two agents never click on one page by accident.
+starting a stdio process. Each MCP session still gets its own browser session, sidecar and tab, so
+two agents never click on one page by accident.
 
 Start it once:
 
 ```bash
+# Default: every session drives the Chrome you already use (attach, shared by default).
+node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
+  --transport http --host 127.0.0.1 --port 7331 --path /mcp
+
+# Or: every session gets a tab in one dedicated browser this server launches.
 node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
   --transport http --host 127.0.0.1 --port 7331 --path /mcp \
-  --headless
+  --mode launch --headless
 ```
 
 The endpoint is then `http://127.0.0.1:7331/mcp`. Flags given here apply to every session; clients
 only supply the URL.
 
+**Persistent per-agent profiles (launch mode).** An anonymous session's profile is deleted when the
+session ends. To keep logins across reconnects, the client names its profile on the initialize
+request — in the URL, `http://127.0.0.1:7331/mcp?profile=claude`, or with the header
+`X-Browser-Use-Profile: claude`. Different names run at once on different profiles; two live
+sessions with the same name are refused (the profile is one browser's at a time). The snippets below
+show the URL form.
+
 - **Claude Code**
 
   ```bash
-  claude mcp add --transport http --scope user browser-use http://127.0.0.1:7331/mcp
+  claude mcp add --transport http --scope user browser-use \
+    "http://127.0.0.1:7331/mcp?profile=claude"
   ```
 
 - **Claude Code project config**
@@ -330,7 +367,7 @@ only supply the URL.
   ```json
   {
     "mcpServers": {
-      "browser-use": { "type": "http", "url": "http://127.0.0.1:7331/mcp" }
+      "browser-use": { "type": "http", "url": "http://127.0.0.1:7331/mcp?profile=claude" }
     }
   }
   ```
@@ -340,7 +377,7 @@ only supply the URL.
   ```json
   {
     "mcpServers": {
-      "browser-use": { "url": "http://127.0.0.1:7331/mcp" }
+      "browser-use": { "url": "http://127.0.0.1:7331/mcp?profile=cursor" }
     }
   }
   ```
@@ -354,8 +391,8 @@ only supply the URL.
 
 - **DSH** — use the `streamable-http` row [above](#dsh).
 
-- **Any client that only says "URL"** — the value is simply
-  `http://127.0.0.1:7331/mcp`.
+- **Any client that only says "URL"** — use `http://127.0.0.1:7331/mcp`, or add
+  `?profile=<name>` for a persistent per-agent profile in launch mode.
 
 Notes:
 
@@ -365,9 +402,10 @@ Notes:
   `BROWSER_USE_MCP_HTTP_IDLE_MS` (milliseconds, positive) in the server's environment.
 - A client that disappears without terminating its session is cleaned up by the same idle sweep; an
   explicit terminate cleans up at once.
-- Browsers are launched per session with a unique profile directory under the state root, and that
-  directory is removed when the session ends. Attach mode still holds one claim per DevTools
-  endpoint across the whole server.
+- In launch mode browsers are launched per session with a profile directory under the state root:
+  anonymous ones are removed when the session ends, a `?profile=<name>` one is kept. In attach mode
+  (the default) every session drives the same already-running browser, shared by default — see
+  `--attach-sharing` in the [configuration reference](config.md).
 
 ---
 

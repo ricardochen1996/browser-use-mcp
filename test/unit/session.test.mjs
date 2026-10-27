@@ -54,7 +54,8 @@ class FakeSidecar {
 /** One session with a fake sidecar and a unique profile under the test home. */
 function sessionFor({ handlers = {}, profile = `unit-${Math.random().toString(36).slice(2, 8)}`, extraFlags = {}, factory } = {}) {
   const config = resolveConfig({
-    flags: { browserUseMcpHome: HOME, profile, headless: true, ...extraFlags },
+    // Most tests are about a launched browser's profile; attach behaviour has its own describe block.
+    flags: { mode: 'launch', browserUseMcpHome: HOME, profile, headless: true, ...extraFlags },
     env: {},
     cwd: HOME,
   })
@@ -321,6 +322,32 @@ describe('close and shutdown', () => {
     assert.equal(existsSync(join(config.userDataDir, '.browser-use-mcp.lock')), false, 'the lock is gone before the stop resolves')
     await stopped
     assert.deepEqual(fake.stopped, [{ graceMs: 250 }])
+  })
+})
+
+describe('attach sharing', () => {
+  const endpoint = 'http://127.0.0.1:9/devtools'
+  it('shared (the default) lets several sessions drive the same browser', async () => {
+    const first = sessionFor({ profile: 'att-shared-a', extraFlags: { mode: 'attach', cdpEndpoint: endpoint }, handlers: { open: () => ({ page: page('a') }) } })
+    const second = sessionFor({ profile: 'att-shared-b', extraFlags: { mode: 'attach', cdpEndpoint: endpoint }, handlers: { open: () => ({ page: page('b') }) } })
+    await first.session.open('https://example.test/')
+    await second.session.open('https://example.test/')
+    assert.equal(existsSync(join(HOME, 'attachments')), false, 'shared attach takes no exclusive lock')
+    await first.session.shutdown()
+    await second.session.shutdown()
+  })
+
+  it('exclusive refuses the second session with a fix', async () => {
+    const exclusive = { mode: 'attach', cdpEndpoint: endpoint, attachSharing: 'exclusive' }
+    const first = sessionFor({ profile: 'att-excl-a', extraFlags: exclusive, handlers: { open: () => ({ page: page('a') }) } })
+    await first.session.open('https://example.test/')
+    const second = sessionFor({ profile: 'att-excl-b', extraFlags: exclusive })
+    await assert.rejects(second.session.open('https://example.test/'), error => {
+      assert.ok(error instanceof SessionBusy)
+      assert.match(error.message, /--attach-sharing exclusive/u)
+      return true
+    })
+    await first.session.shutdown()
   })
 })
 
