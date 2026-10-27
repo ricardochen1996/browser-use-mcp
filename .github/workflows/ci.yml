@@ -45,7 +45,20 @@ jobs:
         run: npm ci
 
       - name: Unit tests
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee "$RUNNER_TEMP/unit.log"
+          code=${PIPESTATUS[0]}
+          if [[ "$code" -ne 0 ]]; then
+            # Surface the failing test names as annotations: the run page shows these without a
+            # login, which is how a public run is debugged without downloading the job log.
+            grep -E '^[[:space:]]*not ok [0-9]+ - ' "$RUNNER_TEMP/unit.log" | head -10 | while IFS= read -r line; do
+              line="${line//$'\n'/ }"
+              echo "::error title=Unit test failure::${line}"
+            done
+          fi
+          exit "$code"
 
       - name: Release gate (manifest, changelog, packed file list)
         if: matrix.node == '22.19.0'
