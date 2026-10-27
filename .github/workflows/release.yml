@@ -152,16 +152,6 @@ jobs:
             exit "$code"
           fi
 
-      - name: Build the publishable tarball
-        run: npm run release:pack
-
-      - name: Attach the tarball to the GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.validate.outputs.tag }}
-        shell: bash
-        run: gh release upload "$TAG" dist/*.tgz dist/pack.json --clobber
-
       - name: Create the GitHub Release
         if: github.repository == 'ricardochen1996/browser-use-mcp'
         env:
@@ -174,3 +164,13 @@ jobs:
           else
             gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
           fi
+
+      - name: Build the publishable tarball
+        run: npm run release:pack
+
+      - name: Attach the tarball to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: gh release upload "$TAG" dist/*.tgz dist/pack.json --clobber
