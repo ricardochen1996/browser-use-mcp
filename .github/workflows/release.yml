@@ -97,11 +97,10 @@ jobs:
           ref: ${{ needs.validate.outputs.tag }}
           persist-credentials: false
 
-      - name: Set up Node with the npm registry
+      - name: Set up Node
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Install
@@ -140,9 +139,17 @@ jobs:
             unset NODE_AUTH_TOKEN
             echo "::notice::No NPM_TOKEN secret; publishing through npm Trusted Publishing (OIDC)."
           fi
-          if ! npm publish --access public --provenance; then
+          set +e
+          npm publish --access public --provenance 2>&1 | tee "$RUNNER_TEMP/npm-publish.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          if [[ "$code" -ne 0 ]]; then
+            tail -8 "$RUNNER_TEMP/npm-publish.log" | while IFS= read -r line; do
+              line="${line//$'\n'/ }"
+              echo "::error title=npm publish::${line}"
+            done
             echo "::error::npm publish failed. Configure either (a) an NPM_TOKEN repository secret with publish access, or (b) a Trusted Publisher on npmjs.com for this package pointing at ricardochen1996/browser-use-mcp and .github/workflows/release.yml, then re-run this workflow."
-            exit 1
+            exit "$code"
           fi
 
       - name: Build the publishable tarball
