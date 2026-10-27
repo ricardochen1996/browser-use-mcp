@@ -10,8 +10,8 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -105,6 +105,40 @@ async function waitGone(pid, timeoutMs = 30_000) {
       return true
     }
     await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  return false
+}
+
+/** Where Browser Harness keeps daemon pid/socket files, matching lib/sidecar.js's resolution. */
+function daemonRuntimeDir() {
+  const env = serverEnv()
+  const caller = env.BH_RUNTIME_DIR || env.BH_TMP_DIR
+  if (caller) return caller.replace(/^~(?=$|\/)/u, homedir())
+  const home = env.BH_HOME || env.BROWSER_HARNESS_HOME
+    || (env.XDG_CONFIG_HOME ? join(env.XDG_CONFIG_HOME, 'browser-harness') : join(homedir(), '.config', 'browser-harness'))
+  return join(home, 'runtime')
+}
+
+/** The Python children of one server process: the sidecars it owns. */
+function sidecarChildren(serverPid) {
+  const listing = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
+  return listing.split('\n')
+    .map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/u))
+    .filter(match => match !== null)
+    .map(match => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }))
+    .filter(entry => entry.ppid === serverPid && entry.command.includes('sidecar/bridge.py'))
+}
+
+/** Wait until a pid is really gone. */
+async function waitDead(pid, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return true
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
   }
   return false
 }
@@ -277,7 +311,26 @@ async function main() {
     assert.ok(observationOf(reopened.text) > current, 'a reopened session keeps counting observations')
     passed.push('browser_close closed the tab, and browser_open reused the browser')
 
-    // 15. A second server on the same profile is refused instead of driving one browser twice.
+    // 15. A crashed sidecar is replaced by a new generation, keeps no stale table, and leaks no daemon.
+    const daemonPidPath = join(daemonRuntimeDir(), `bu-browser-use-mcp-${PROFILE}.pid`)
+    assert.ok(existsSync(daemonPidPath), `the running browser's daemon pid should exist at ${daemonPidPath}`)
+    const crashedDaemon = Number(readFileSync(daemonPidPath, 'utf8').trim())
+    const [sidecar] = sidecarChildren(first.transport.pid)
+    assert.ok(sidecar !== undefined, 'the server has a sidecar child while a page is open')
+    process.kill(sidecar.pid, 'SIGKILL')
+    assert.ok(await waitDead(sidecar.pid), 'the sidecar was killed')
+    const afterCrash = await call(first.client, 'browser_page')
+    assert.equal(afterCrash.isError, false, 'a lost session is a refusal, not a failed call')
+    assert.match(afterCrash.text, /^Refused: Open a page first\./u)
+    assert.doesNotMatch(afterCrash.text, /Targets below are valid only for this observation/u, 'no dead generation table')
+    assert.ok(await waitDead(crashedDaemon), 'the crashed generation\u2019s browser-harness daemon was reaped')
+    const afterReopen = await call(first.client, 'browser_open', { url: FIXTURE })
+    assert.match(afterReopen.text, /not shut down cleanly/u)
+    assert.ok(observationOf(afterReopen.text) > current, 'the new generation starts a new observation')
+    current = observationOf(afterReopen.text)
+    passed.push('a killed sidecar was replaced by a fresh generation, with no stale table and no leaked daemon')
+
+    // 16. A second server on the same profile is refused instead of driving one browser twice.
     const second = await startServer()
     try {
       const busy = await call(second.client, 'browser_open', { url: FIXTURE })
@@ -290,7 +343,7 @@ async function main() {
       if (secondPid !== null) assert.ok(await waitGone(secondPid), 'the refused server exited')
     }
 
-    // 16. The surface switches withdraw tools; the server still starts and lists what is left.
+    // 17. The surface switches withdraw tools; the server still starts and lists what is left.
     const minimal = await startServer({ BROWSER_USE_MCP_NO_EVAL: '1', BROWSER_USE_MCP_NO_SCREENSHOTS: '1', BROWSER_USE_MCP_NO_JEV: '1' })
     try {
       const minimalTools = (await minimal.client.listTools()).tools.map(tool => tool.name)
@@ -319,6 +372,11 @@ async function main() {
   await second.client.close()
   assert.ok(!existsSync(join(STATE_ROOT, 'profiles', PROFILE, '.browser-use-mcp.lock')), 'the profile lock was released')
   passed.push('the server shut down cleanly and released its profile lock')
+
+  // No daemon file for this test's sessions survives the shutdown either.
+  const daemonLeftovers = readdirSync(daemonRuntimeDir()).filter(name => name.startsWith(`bu-browser-use-mcp-${PROFILE}`))
+  assert.deepEqual(daemonLeftovers, [], `daemon files left behind: ${daemonLeftovers.join(', ')}`)
+  passed.push('no browser-harness daemon files were left behind')
 
   // A scratch profile directory left by a crashed run is clearable; this one is only used by the test.
   rmSync(join(STATE_ROOT, 'profiles', PROFILE), { recursive: true, force: true })

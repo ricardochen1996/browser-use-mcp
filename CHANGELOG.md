@@ -70,13 +70,14 @@ see and click, built on the `dsh-browser-use` engine.
   and variable reference), `docs/architecture.md` (design and rationale), `AGENTS.md` (the working
   contract) and `NOTICE` (third-party attribution).
 - **Tests.** `test/unit/` covers configuration, CLI parsing, rendering, sessions/locks and
-  provisioning (including a real install into a temporary home); four real-browser end-to-end
-  suites drive the real MCP protocol: `test/e2e/stdio.mjs` (tools, freshness guard, refusals,
-  eval/screenshot/console, profile lock, tool switches), `test/e2e/http.mjs` (two MCP sessions on
-  one endpoint never share a page, idle cleanup, a long profile name), `test/e2e/attach.mjs`
-  (attach mode against a Chrome the test launches: the attached browser survives every close) and
-  `test/e2e/intent.mjs` (the Jev intent/goal path against a loopback chat stub, plus the
-  no-credentials refusal). No paid model calls and no credentials are needed.
+  provisioning (including a real install into a temporary home); five real-browser end-to-end
+  suites drive the real protocol: `test/e2e/stdio.mjs` (tools, freshness guard, refusals,
+  eval/screenshot/console, crash recovery, profile lock, tool switches), `test/e2e/http.mjs` (two
+  MCP sessions on one endpoint never share a page, idle cleanup, a long profile name),
+  `test/e2e/attach.mjs` (attach mode against a Chrome the test launches: the attached browser
+  survives every close), `test/e2e/intent.mjs` (the Jev intent/goal path against a loopback chat
+  stub, plus the no-credentials refusal) and `test/e2e/protocol.mjs` (hand-written JSON-RPC with no
+  MCP SDK on the client side). No paid model calls and no credentials are needed.
 
 ### Fixed
 
@@ -118,6 +119,10 @@ These are the pre-release fixes that made the first version safe to publish.
 - `browser_close` with no page open answers "nothing to close" instead of starting a browser.
 - Numeric tool arguments (a target index that arrives as a JSON number) are accepted where a string
   is meant, instead of failing MCP input validation.
+- A sidecar that dies unexpectedly no longer leaks its Browser Harness daemon: the crash handler
+  reaps the generation's daemon (its socket and pid files included) because that generation is
+  never reused. The stdio e2e now kills a sidecar mid-session and asserts both the fresh
+  generation and the absence of the old daemon.
 
 ### Notes
 

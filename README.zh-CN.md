@@ -300,7 +300,8 @@ MIT。见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
 ```bash
 npm test          # 快速单元测试（node --test）
 npm run test:e2e  # 真实 headless Chrome 跑真实 MCP 协议
-                  # （stdio、HTTP、attach 模式、用回环 stub 验证的 Jev intent）
+                  # （stdio、HTTP、attach 模式、用回环 stub 验证的 Jev intent、
+                  #  以及手写 JSON-RPC 客户端）
 npm run doctor    # CLI 自检
 ```
 

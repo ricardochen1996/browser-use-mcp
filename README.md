@@ -391,7 +391,8 @@ design and rationale are in [docs/architecture.md](docs/architecture.md).
 ```bash
 npm test          # fast unit tests (node --test)
 npm run test:e2e  # real headless Chrome through the real MCP protocol
-                  # (stdio, HTTP, attach mode, Jev intent against a loopback stub)
+                  # (stdio, HTTP, attach mode, Jev intent against a loopback stub,
+                  #  and a hand-written JSON-RPC client)
 npm run doctor    # the CLI self-check
 ```
 
