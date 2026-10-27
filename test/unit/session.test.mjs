@@ -363,14 +363,18 @@ describe('daemon identity', () => {
   })
 
   it('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
-    const label = 'a'.repeat(40) + '-abcdefghijklm'
-    const { name, files } = daemonIdentity(shortEnv, label, 1)
+    // The long-name path has to be long on every platform: a label at the 64-character stem limit
+    // plus a 32-character runtime directory clears sun_path's 100 bytes on macOS and on Linux
+    // (where tmpdir() is only /tmp), so the fallback is exercised rather than assumed.
+    const longRuntime = { BH_RUNTIME_DIR: join(tmpdir(), 'b'.repeat(32)), BH_RUNTIME_DIR_SHARED: '1' }
+    const label = 'a'.repeat(64)
+    const { name, files } = daemonIdentity(longRuntime, label, 1)
     assert.match(name, /^browser-use-mcp-[0-9a-f]{10}$/u)
     assert.ok(files.sockPath.length <= 100, files.sockPath)
     // The same label and generation must find the same daemon again; another one must not collide.
-    assert.equal(daemonIdentity(shortEnv, label, 1).name, name)
-    assert.notEqual(daemonIdentity(shortEnv, label, 2).name, name)
-    assert.notEqual(daemonIdentity(shortEnv, `${label}x`, 1).name, name)
+    assert.equal(daemonIdentity(longRuntime, label, 1).name, name)
+    assert.notEqual(daemonIdentity(longRuntime, label, 2).name, name)
+    assert.notEqual(daemonIdentity(longRuntime, label.slice(0, -1), 1).name, name)
   })
 
   it('refuses a runtime directory so long that no daemon name can fit, and names the fix', () => {
