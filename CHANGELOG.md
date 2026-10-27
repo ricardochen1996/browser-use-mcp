@@ -7,9 +7,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
-
-## [0.1.0] - 2026-10-26
+## [0.1.0] - 2026-10-27
 
 The first public version of `browser-use-mcp`: an MCP server that gives any agent a browser it can
 see and click, built on the `dsh-browser-use` engine.
@@ -81,6 +79,12 @@ see and click, built on the `dsh-browser-use` engine.
   Cursor, Codex, DSH and generic `mcpServers`, stdio and HTTP), `docs/config.md` (exhaustive flag
   and variable reference), `docs/architecture.md` (design and rationale), `AGENTS.md` (the working
   contract) and `NOTICE` (third-party attribution).
+- **CI and release automation.** GitHub Actions runs the unit suite on Node 22.19 and 24, the
+  release gate (manifest, changelog and the exact packed file list must agree) and a real-browser
+  end-to-end job on Ubuntu (Chrome plus a managed Python 3.12 environment). A `vX.Y.Z` annotated tag
+  on `main` triggers the release workflow: it validates that the tag and `package.json` agree, reruns
+  the full CI gate, publishes to npm with provenance, and creates the GitHub Release. Publishing is
+  idempotent: an already-published version is skipped rather than failing the run.
 - **Tests.** `test/unit/` covers configuration, CLI parsing, rendering, sessions/locks and
   provisioning (including a real install into a temporary home); five real-browser end-to-end
   suites drive the real protocol: `test/e2e/stdio.mjs` (tools, freshness guard, refusals,

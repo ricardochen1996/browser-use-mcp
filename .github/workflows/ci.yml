@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Node ${{ matrix.node }} — unit, CLI and release checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.19.0', '24']
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Release gate (manifest, changelog, packed file list)
+        if: matrix.node == '22.19.0'
+        run: npm run release:check
+
+      - name: Build the publishable tarball
+        if: matrix.node == '22.19.0'
+        run: npm run release:pack
+
+      - name: CLI smoke test
+        run: |
+          node bin/browser-use-mcp.mjs --version
+          node bin/browser-use-mcp.mjs --help > /dev/null
+
+  e2e:
+    name: Real-browser end-to-end (Chrome + Python 3.12)
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.19.0'
+          cache: npm
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.12.17'
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install
+        run: npm ci
+
+      - name: Locate Chrome
+        run: |
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [[ -z "$chrome" ]]; then
+            echo "::error::no Chrome or Chromium on this runner, and the end-to-end suites need one"
+            exit 1
+          fi
+          echo "BROWSER_USE_MCP_TEST_CHROME=$chrome" >> "$GITHUB_ENV"
+          "$chrome" --version
+
+      # The suites provision their managed engine environment on first use; the state root lives in
+      # the runner's temp directory, so nothing outside the job is touched.
+      - name: End-to-end suites
+        env:
+          BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
+        run: npm run test:e2e
+
+      - name: Leave no browser or daemon behind
+        if: always()
+        run: |
+          pkill -f browser_harness.daemon || true
+          pkill -f 'browser-use-mcp.mjs' || true

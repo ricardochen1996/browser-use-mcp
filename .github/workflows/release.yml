@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing annotated vX.Y.Z tag to release'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate the release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Check out with tags
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require an annotated tag on main that matches package.json
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$DISPATCH_TAG"
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]]; then
+            echo "::error::a release tag must look like vX.Y.Z, not '$tag'"
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::tag '$tag' does not exist"
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "refs/tags/$tag")" != "tag" ]]; then
+            echo "::error::tag '$tag' must be annotated (git tag -a), so the release has an owner and a date"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "refs/tags/$tag^{commit}" origin/main; then
+            echo "::error::tag '$tag' is not on main; release from main only"
+            exit 1
+          fi
+          version="$(jq -r .version package.json)"
+          if [[ "$tag" != "v$version" ]]; then
+            echo "::error::tag '$tag' does not match package.json version '$version'"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "releasing $version from $tag"
+
+  check:
+    name: Run the full CI gate
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish ${{ needs.validate.outputs.version }} to npm
+    needs: [validate, check]
+    if: github.repository == 'ricardochen1996/browser-use-mcp'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@ricardochen1996/browser-use-mcp
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out the tagged release
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
+
+      - name: Set up Node with the npm registry
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Stop if this version is already published
+        id: existing
+        shell: bash
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already on npm; the release will not publish again."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with npm provenance
+        if: steps.existing.outputs.published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "::error::NPM_TOKEN is not configured. Add an npm automation token (or a granular token with publish access) as a repository secret, then re-run this workflow."
+            exit 1
+          fi
+          npm run release:check -- --tag "${{ needs.validate.outputs.tag }}"
+          npm publish --access public --provenance
+
+      - name: Create the GitHub Release
+        if: github.repository == 'ricardochen1996/browser-use-mcp'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::the GitHub Release for $TAG already exists; leaving it in place."
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          fi

@@ -193,6 +193,21 @@ Owned by the Lead; the exact shapes are in the source and in `docs/architecture.
 Do not edit files outside your scope. Edit with the `edit`/`write` tools (not shell heredocs) so
 concurrent editors see each other's changes. `sidecar/bridge.py` is vendored: never edit it.
 
+## Release process
+
+- Version `X.Y.Z` lives in `package.json`, and `CHANGELOG.md` has its `## [X.Y.Z] - YYYY-MM-DD`
+  section. `npm run release:check` refuses a release when the two disagree, when the packed file
+  list is missing something (`lib/`, `sidecar/bridge.py`, the bundled wheel, docs, license), when
+  the wheel does not match `vendor/jev-ultrafast.json`, or when the package would contain tests.
+- `.github/workflows/ci.yml` runs the unit suite on Node 22.19 and 24, the release gate, and a
+  real-browser e2e job on Ubuntu (Chrome + managed Python 3.12). Pull requests and `main` use it.
+- `.github/workflows/release.yml` runs on an annotated `vX.Y.Z` tag **on main** (or a manual dispatch
+  that names one): it validates tag/version/annotated/on-main, calls `ci.yml`, then publishes to npm
+  with provenance (`NPM_TOKEN` repository secret, `npm` environment) and creates the GitHub Release.
+  A version already on npm is skipped, so re-running a tag is safe.
+- `npm run release:pack` builds `dist/<tarball>` and `dist/pack.json` (sha512 integrity), which is
+  the artifact to attach to a release when a human wants to verify exactly what was published.
+
 ## Quality bar
 
 - No model calls in the default test suite: a rendered page only. A chat-decider test may spin a

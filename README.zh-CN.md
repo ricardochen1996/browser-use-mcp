@@ -1,5 +1,7 @@
 # @ricardochen1996/browser-use-mcp
 
+[![CI](https://github.com/ricardochen1996/browser-use-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ricardochen1996/browser-use-mcp/actions/workflows/ci.yml)
+
 [English](README.md) · **中文**
 
 > 一个 MCP 服务器，给**任何 agent** 一双能看、能点的浏览器：页面被读成一张**带索引的动作空间表**，模型每步只做一个操作、只对一个来自那张表的目标。
@@ -308,14 +310,18 @@ MIT。见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
 ## 开发
 
 ```bash
-npm test          # 快速单元测试（node --test）
+npm test            # 快速单元测试（node --test）
 npm run test:e2e  # 真实 headless Chrome 跑真实 MCP 协议
                   # （stdio、HTTP、attach 模式、用回环 stub 验证的 Jev intent、
                   #  以及手写 JSON-RPC 客户端）
-npm run doctor    # CLI 自检
+npm run release:check  # 校验版本、CHANGELOG 与真正会被打包的文件清单
+npm run release:pack   # 构建 tarball、校验内容并把 integrity 记录到 dist/
+npm run doctor      # CLI 自检
 ```
 
 默认测试不花模型调用、不需要任何凭据；e2e 测试首次运行会把引擎装进一个测试用的状态根。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
+
+**发布**：在 `main` 上打标注 tag `vX.Y.Z`，[release 工作流](.github/workflows/release.yml) 会校验 tag 与 `package.json` 一致、重跑 CI（单元 + 真浏览器 e2e）、用仓库 secret `NPM_TOKEN` 带 provenance 发布到 npm，并创建 GitHub Release。流程是幂等的：已发布的版本会被跳过，不会让重跑失败。
 
 ---
 

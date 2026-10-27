@@ -46,7 +46,10 @@
     "check": "npm test && npm run test:e2e",
     "test:e2e:attach": "node test/e2e/attach.mjs",
     "test:e2e:intent": "node test/e2e/intent.mjs",
-    "test:e2e:protocol": "node test/e2e/protocol.mjs"
+    "test:e2e:protocol": "node test/e2e/protocol.mjs",
+    "release:check": "node bin/check-release.mjs",
+    "release:pack": "node bin/check-package.mjs",
+    "prepublishOnly": "npm run release:check"
   },
   "keywords": [
     "mcp",
@@ -58,6 +61,9 @@
     "jev",
     "agent"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"

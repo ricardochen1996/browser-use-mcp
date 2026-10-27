@@ -1,5 +1,7 @@
 # @ricardochen1996/browser-use-mcp
 
+[![CI](https://github.com/ricardochen1996/browser-use-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ricardochen1996/browser-use-mcp/actions/workflows/ci.yml)
+
 **English** · [中文](README.zh-CN.md)
 
 > An MCP server that gives **any agent** a browser it can *see and click*: a page is read as an
@@ -429,15 +431,22 @@ design and rationale are in [docs/architecture.md](docs/architecture.md).
 ## Development
 
 ```bash
-npm test          # fast unit tests (node --test)
-npm run test:e2e  # real headless Chrome through the real MCP protocol
-                  # (stdio, HTTP, attach mode, Jev intent against a loopback stub,
-                  #  and a hand-written JSON-RPC client)
-npm run doctor    # the CLI self-check
+npm test            # fast unit tests (node --test)
+npm run test:e2e    # real headless Chrome through the real MCP protocol
+                    # (stdio, HTTP, attach mode, Jev intent against a loopback stub,
+                    #  and a hand-written JSON-RPC client)
+npm run release:check  # manifest + changelog + the exact packed file list
+npm run release:pack   # build the tarball, verify it and record its integrity in dist/
+npm run doctor      # the CLI self-check
 ```
 
 The default suites spend no model calls and need no credentials; the e2e tests install the engine
 into a test state root on their first run. Release history is in [CHANGELOG.md](CHANGELOG.md).
+
+**Releases** are tagged `vX.Y.Z` on `main`; the [release workflow](.github/workflows/release.yml)
+validates the annotated tag against `package.json`, reruns CI (unit plus real-browser e2e), publishes
+to npm with provenance using the `NPM_TOKEN` repository secret, and creates the GitHub Release. Bump
+the version, add its `CHANGELOG.md` section, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the tag.
 
 ---
 
