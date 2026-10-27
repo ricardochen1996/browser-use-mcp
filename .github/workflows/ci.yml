@@ -111,11 +111,32 @@ jobs:
           "$chrome" --version
 
       # The suites provision their managed engine environment on first use; the state root lives in
-      # the runner's temp directory, so nothing outside the job is touched.
-      - name: End-to-end suites
+      # the runner's temp directory, so nothing outside the job is touched. Each suite is its own step
+      # so a red run names the suite, and the script turns the suite's failure into annotations.
+      - name: End-to-end: stdio
         env:
           BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
-        run: npm run test:e2e
+        run: bash .github/scripts/e2e-suite.sh stdio
+
+      - name: End-to-end: HTTP
+        env:
+          BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
+        run: bash .github/scripts/e2e-suite.sh http
+
+      - name: End-to-end: attach
+        env:
+          BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
+        run: bash .github/scripts/e2e-suite.sh attach
+
+      - name: End-to-end: Jev intent
+        env:
+          BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
+        run: bash .github/scripts/e2e-suite.sh intent
+
+      - name: End-to-end: protocol
+        env:
+          BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
+        run: bash .github/scripts/e2e-suite.sh protocol
 
       - name: Leave no browser or daemon behind
         if: always()
