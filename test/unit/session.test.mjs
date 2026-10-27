@@ -364,9 +364,9 @@ describe('daemon identity', () => {
 
   it('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
     // The long-name path has to be long on every platform: a label at the 64-character stem limit
-    // plus a 32-character runtime directory clears sun_path's 100 bytes on macOS and on Linux
-    // (where tmpdir() is only /tmp), so the fallback is exercised rather than assumed.
-    const longRuntime = { BH_RUNTIME_DIR: join(tmpdir(), 'b'.repeat(32)), BH_RUNTIME_DIR_SHARED: '1' }
+    // plus an 8-character runtime directory clears sun_path's 100 bytes on macOS and on Linux
+    // (where tmpdir() is only /tmp), while still leaving room for the short digest fallback.
+    const longRuntime = { BH_RUNTIME_DIR: join(tmpdir(), 'b'.repeat(8)), BH_RUNTIME_DIR_SHARED: '1' }
     const label = 'a'.repeat(64)
     const { name, files } = daemonIdentity(longRuntime, label, 1)
     assert.match(name, /^browser-use-mcp-[0-9a-f]{10}$/u)
