@@ -126,12 +126,25 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
         run: |
-          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
-            echo "::error::NPM_TOKEN is not configured. Add an npm automation token (or a granular token with publish access) as a repository secret, then re-run this workflow."
+          # Two supported credentials: a repository secret (an automation token, or a granular token
+          # with publish access) or npm Trusted Publishing, where npm exchanges this job's OIDC token
+          # for a short-lived publish credential after the package's settings name this repository and
+          # workflow. With neither, npm cannot authenticate and the error below says both options.
+          npm run release:check -- --tag "${{ needs.validate.outputs.tag }}"
+          if ! npm publish --access public --provenance; then
+            echo "::error::npm publish failed. Configure either (a) an NPM_TOKEN repository secret with publish access, or (b) a Trusted Publisher on npmjs.com for this package pointing at ricardochen1996/browser-use-mcp and .github/workflows/release.yml, then re-run this workflow."
             exit 1
           fi
-          npm run release:check -- --tag "${{ needs.validate.outputs.tag }}"
-          npm publish --access public --provenance
+
+      - name: Build the publishable tarball
+        run: npm run release:pack
+
+      - name: Attach the tarball to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: gh release upload "$TAG" dist/*.tgz dist/pack.json --clobber
 
       - name: Create the GitHub Release
         if: github.repository == 'ricardochen1996/browser-use-mcp'

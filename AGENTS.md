@@ -202,9 +202,11 @@ concurrent editors see each other's changes. `sidecar/bridge.py` is vendored: ne
 - `.github/workflows/ci.yml` runs the unit suite on Node 22.19 and 24, the release gate, and a
   real-browser e2e job on Ubuntu (Chrome + managed Python 3.12). Pull requests and `main` use it.
 - `.github/workflows/release.yml` runs on an annotated `vX.Y.Z` tag **on main** (or a manual dispatch
-  that names one): it validates tag/version/annotated/on-main, calls `ci.yml`, then publishes to npm
-  with provenance (`NPM_TOKEN` repository secret, `npm` environment) and creates the GitHub Release.
-  A version already on npm is skipped, so re-running a tag is safe.
+  that names one): it validates tag/version/annotated/on-main (fetching tag objects explicitly, since
+  checkout may leave a lightweight ref), calls `ci.yml`, then publishes to npm with provenance and
+  creates the GitHub Release with `dist/` attached. Credentials are either an `NPM_TOKEN` repository
+  secret or npm Trusted Publishing (the job's OIDC token) once the package names this repository and
+  workflow. A version already on npm is skipped, so re-running a tag only refreshes the release.
 - `npm run release:pack` builds `dist/<tarball>` and `dist/pack.json` (sha512 integrity), which is
   the artifact to attach to a release when a human wants to verify exactly what was published.
 

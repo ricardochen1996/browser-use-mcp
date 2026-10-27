@@ -321,7 +321,7 @@ npm run doctor      # CLI 自检
 
 默认测试不花模型调用、不需要任何凭据；e2e 测试首次运行会把引擎装进一个测试用的状态根。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
-**发布**：在 `main` 上打标注 tag `vX.Y.Z`，[release 工作流](.github/workflows/release.yml) 会校验 tag 与 `package.json` 一致、重跑 CI（单元 + 真浏览器 e2e）、用仓库 secret `NPM_TOKEN` 带 provenance 发布到 npm，并创建 GitHub Release。流程是幂等的：已发布的版本会被跳过，不会让重跑失败。
+**发布**：在 `main` 上打标注 tag `vX.Y.Z`，[release 工作流](.github/workflows/release.yml) 会校验 tag 与 `package.json` 一致、重跑 CI（单元 + 真浏览器 e2e）、带 provenance 发布到 npm，并创建 GitHub Release，附上校验过的 tarball。凭据二选一：仓库 secret `NPM_TOKEN`（automation 或带 publish 权限的 granular token），或在 npm 上把本仓库与 `.github/workflows/release.yml` 配成 **Trusted Publisher**，工作流会用 OIDC 换取短期发布凭据。已发布的版本会被跳过，重跑只刷新 GitHub Release。
 
 ---
 

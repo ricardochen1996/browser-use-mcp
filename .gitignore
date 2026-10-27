@@ -10,3 +10,4 @@ dist/
 test/.home/
 test/.tmp/
 coverage/
+.npmrc

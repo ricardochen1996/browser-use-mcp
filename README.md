@@ -445,8 +445,12 @@ into a test state root on their first run. Release history is in [CHANGELOG.md](
 
 **Releases** are tagged `vX.Y.Z` on `main`; the [release workflow](.github/workflows/release.yml)
 validates the annotated tag against `package.json`, reruns CI (unit plus real-browser e2e), publishes
-to npm with provenance using the `NPM_TOKEN` repository secret, and creates the GitHub Release. Bump
-the version, add its `CHANGELOG.md` section, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the tag.
+to npm with provenance, and creates the GitHub Release with the verified tarball attached. It accepts
+either an `NPM_TOKEN` repository secret (an automation or publish-capable granular token) or npm
+**Trusted Publishing**: name this repository and `.github/workflows/release.yml` as the package's
+trusted publisher and the OIDC token of the job is used instead. An already-published version is
+skipped, so a re-run only refreshes the GitHub Release. Bump the version, add its `CHANGELOG.md`
+section, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the tag.
 
 ---
 
