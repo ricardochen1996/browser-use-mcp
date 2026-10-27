@@ -30,7 +30,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
+
+      - name: Fetch every tag object
+        shell: bash
+        run: git fetch --tags --force origin '+refs/tags/*:refs/tags/*'
 
       - name: Require an annotated tag on main that matches package.json
         id: tag
