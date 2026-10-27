@@ -108,6 +108,9 @@ These are the pre-release fixes that made the first version safe to publish.
 - The doctor only looks: `inspectEngine` never installs, `browser-use-mcp install` is the separate
   command, and `browser_doctor` requires `install: true` to build. A read-only self-check is what a
   person or an agent can safely run at any time.
+- `browser-use-mcp install` succeeds when it built the engine, even in the default attach mode with
+  no browser running: the attach target belongs to the doctor and the first browser call, so the
+  installer no longer exits non-zero on a machine (or CI runner) where it did its job.
 - Jev credentials are copied into the one model-spending sidecar request and are not left in the
   server's or the sidecar's environment, so a stale key cannot leak into an unrelated call.
 - Install concurrency is safe across processes: a lock directory records its owner, one install runs

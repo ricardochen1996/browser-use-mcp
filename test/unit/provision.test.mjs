@@ -179,6 +179,30 @@ test('inspectEngine reports attach problems with fixes instead of throwing', asy
   assert.equal(malformed.attach.code, 'attach_unchecked')
 })
 
+test('inspectEngine leaves the browser question to the doctor and the first open, not to install', async () => {
+  const config = configFor(join(tmpdir(), 'browser-use-mcp-install-only'))
+  // No browser is running at this endpoint and no Chrome need exist on this machine: `install` is
+  // about the engine, so neither may turn into a problem that makes it exit non-zero.
+  const report = await inspectEngine({
+    ...config,
+    command: 'install',
+    mode: 'attach',
+    cdpEndpoint: 'http://127.0.0.1:9/',
+  })
+  assert.equal(report.attach, undefined)
+  assert.equal(report.browser, undefined)
+  assert.deepEqual(report.problems.filter(item => item.code.startsWith('attach_') || item.code === 'no_browser'), [])
+  // A doctor or a server still checks it: the default mode drives a browser that must be there.
+  const doctor = await inspectEngine({
+    ...config,
+    command: 'doctor',
+    mode: 'attach',
+    cdpEndpoint: 'http://127.0.0.1:9/',
+  })
+  assert.equal(doctor.attach?.reachable, false)
+  assert.ok(doctor.problems.some(item => item.code === 'attach_unreachable'))
+})
+
 test('ensureEngine provisions a real environment into a temp home and reuses it', { timeout: 300000 }, async t => {
   const home = mkdtempSync(join(tmpdir(), 'browser-use-mcp-home-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
