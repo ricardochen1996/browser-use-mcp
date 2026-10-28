@@ -9,7 +9,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -28,6 +28,7 @@ import {
   stateRoot,
 } from '../../lib/provision.js'
 import {
+  engineIsCurrent,
   ensureEngine,
   forgetEngine,
   inspectEngine,
@@ -68,8 +69,8 @@ test('environmentPython is the platform-specific interpreter inside a virtualenv
 test('bundledEngine reads the engine version from the wheel that ships here', () => {
   const engine = bundledEngine()
   assert.ok(engine, 'the package must carry vendor/jev_ultrafast-*.whl')
-  assert.equal(engine.version, '0.1.1')
-  assert.equal(engine.path, join(PACKAGE_ROOT, 'vendor', 'jev_ultrafast-0.1.1-py3-none-any.whl'))
+  assert.equal(engine.version, '0.1.2')
+  assert.equal(engine.path, join(PACKAGE_ROOT, 'vendor', 'jev_ultrafast-0.1.2-py3-none-any.whl'))
   assert.ok(existsSync(engine.path))
   assert.ok(existsSync(requirementsPath()), 'the hash-pinned requirements must ship too')
 })
@@ -223,7 +224,7 @@ test('ensureEngine provisions a real environment into a temp home and reuses it'
   const report = await ensureEngine(config)
   const took = Date.now() - started
   assert.equal(report.ok, true, reportText(report))
-  assert.equal(report.engine?.engine, '0.1.1')
+  assert.equal(report.engine?.engine, '0.1.2')
   assert.equal(report.engine?.browserHarness, '0.1.13')
   assert.deepEqual(report.problems, [])
   assert.equal(report.interpreter.source, 'managed environment')
@@ -235,7 +236,7 @@ test('ensureEngine provisions a real environment into a temp home and reuses it'
   assert.ok(existsSync(join(home, 'install.json')), 'the install record has to be written')
   const record = environmentRecord(environment)
   assert.equal(record.environment, environment)
-  assert.equal(record.engine, '0.1.1')
+  assert.equal(record.engine, '0.1.2')
   assert.equal(record.browserHarness, '0.1.13')
   assert.ok(['uv', 'python'].includes(record.strategy), `unexpected strategy ${record.strategy}`)
   assert.match(String(record.installedAt), /^\d{4}-\d{2}-\d{2}T/u)
@@ -246,12 +247,12 @@ test('ensureEngine provisions a real environment into a temp home and reuses it'
   const again = await ensureEngine(config)
   assert.equal(again.ok, true, reportText(again))
   assert.ok(Date.now() - second < 5000, 'a second ensureEngine must not reinstall')
-  assert.equal(again.engine?.engine, '0.1.1')
+  assert.equal(again.engine?.engine, '0.1.2')
 
   const reused = await installEngine(config)
   assert.equal(reused.ok, true)
   assert.equal(reused.environment, environment)
-  assert.equal(reused.engine, '0.1.1')
+  assert.equal(reused.engine, '0.1.2')
   assert.equal(reused.browserHarness, '0.1.13')
 
   // Concurrent callers must join one install, not race two into the same directory.
@@ -265,4 +266,74 @@ test('ensureEngine provisions a real environment into a temp home and reuses it'
   assert.equal(first.strategy, concurrent.strategy)
   assert.equal(first.engine, concurrent.engine)
   assert.equal(first.browserHarness, concurrent.browserHarness)
+})
+
+/** The site-packages directory inside one managed environment, as its Python lays it out. */
+function sitePackagesFor(environment) {
+  const windows = process.platform === 'win32'
+  const lib = windows ? join(environment, 'Lib') : join(environment, 'lib')
+  const directory = windows
+    ? lib
+    : join(lib, readdirSync(lib).find(name => name.startsWith('python3')) ?? 'python3')
+  return join(directory, 'site-packages')
+}
+
+test('an engine that is not the version this package ships is not current', () => {
+  const bundled = bundledEngine()
+  assert.equal(engineIsCurrent({ engine: { engine: bundled.version } }), true)
+  assert.equal(engineIsCurrent({ engine: { engine: '0.0.9' } }), false)
+  assert.equal(engineIsCurrent({}), false, 'no probed engine is not a current engine')
+  assert.equal(engineIsCurrent(undefined), false)
+})
+
+test('ensureEngine rebuilds an environment an earlier release built', { timeout: 300000 }, async t => {
+  const home = mkdtempSync(join(tmpdir(), 'browser-use-mcp-upgrade-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const config = configFor(home)
+  const environment = ownEnvironment(config)
+  forgetEngine()
+
+  const first = await ensureEngine(config)
+  assert.equal(first.ok, true, reportText(first))
+  assert.equal(engineIsCurrent(first), true)
+
+  // Make the installed engine look like an earlier release built it: relabelling its distribution
+  // metadata is what the probe reads, so this asks the upgrade question without a second wheel.
+  const site = sitePackagesFor(environment)
+  const installed = readdirSync(site).find(name => /^jev_ultrafast-.*\.dist-info$/u.test(name))
+  assert.ok(installed, 'the installed engine has a dist-info directory')
+  const stale = 'jev_ultrafast-0.0.9.dist-info'
+  renameSync(join(site, installed), join(site, stale))
+  const metadata = join(site, stale, 'METADATA')
+  writeFileSync(metadata, readFileSync(metadata, 'utf8').replace(/^Version: .*$/mu, 'Version: 0.0.9'))
+
+  forgetEngine()
+  const outdated = await inspectEngine(config, { fresh: true })
+  assert.equal(outdated.engine?.engine, '0.0.9', reportText(outdated))
+  assert.equal(engineIsCurrent(outdated), false)
+  assert.equal(outdated.ok, false, 'an outdated engine is not "ready"')
+  assert.ok(outdated.problems.some(item => item.code === 'engine_outdated'), JSON.stringify(outdated.problems))
+
+  // A configured interpreter is the caller's own environment: the same finding is a warning there,
+  // with the command that installs the bundled wheel, and browser calls keep working with it.
+  const configured = await inspectEngine(
+    { ...config, pythonPath: environmentPython(environment) },
+    { fresh: true },
+  )
+  assert.equal(configured.ok, true, 'a configured interpreter is not refused for an old engine')
+  assert.equal(configured.engine?.engine, '0.0.9')
+  assert.deepEqual(configured.problems, [])
+  assert.ok(configured.warnings.some(item => item.code === 'engine_outdated'), JSON.stringify(configured.warnings))
+  assert.match(configured.warnings[0].fix, /uv pip install --python/u)
+  assert.match(reportText(configured), /Warning  : the browser engine in use is jev_ultrafast 0\.0\.9/u)
+  const leftAlone = await ensureEngine({ ...config, pythonPath: environmentPython(environment) })
+  assert.equal(leftAlone.ok, true)
+  assert.equal(leftAlone.engine?.engine, '0.0.9', 'a configured interpreter is never reinstalled by this server')
+
+  // The upgrade question is not "does it import" but "is it the version beside this package".
+  const repaired = await ensureEngine(config)
+  assert.equal(repaired.ok, true, reportText(repaired))
+  assert.equal(repaired.engine?.engine, bundledEngine().version)
+  assert.equal(engineIsCurrent(repaired), true)
+  assert.equal(environmentRecord(environment).engine, bundledEngine().version)
 })

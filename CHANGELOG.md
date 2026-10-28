@@ -7,6 +7,45 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-28
+
+### Fixed
+
+- **`browser_console` reports the page's console output.** It was always empty: the sidecar
+  filtered the Browser Harness event buffer by the CDP session this run drives, but `Runtime` and
+  `Network` had only been enabled on the session the daemon itself attached to. The sidecar now
+  enables both domains on the run's own session — once per session, re-checked when a click
+  follows a new tab — before the first observation. Console entries and exceptions, including the
+  ones the page produced while it loaded (Chrome replays those on `Runtime.enable`), and every
+  failed or 4xx+ request made while the session drives the tab are now reported; request failures
+  from the initial load itself predate the enable and are not replayed by Chrome. Diagnostics stay
+  best effort: a domain that cannot be enabled never fails the browser call it belongs to.
+- **`browser_open` no longer fails a page that takes more than 5 s to load.** The engine navigated
+  through Browser Harness's 5 s IPC default, which is sized for one CDP round trip, so a slow
+  origin (a TLS handshake, a redirect chain, a cold profile) was reported as `Page.navigate timed
+  out after 5s` while the browser was still loading it. `Page.navigate` now gets a page-load-scale
+  timeout; the engine's existing settle loop still bounds the load, and every other call keeps the
+  harness default.
+- **All stdio server processes with the same profile shared one Browser Harness daemon.** Two
+  servers drove one tab, and either shutdown made the other fail with `FileNotFoundError`. Each
+  server process now gets its own daemon name; a request that still meets a vanished daemon is
+  answered with `lost_session` and a call to `browser_open` instead of the raw Python error.
+
+### Changed
+
+- The bundled engine is `jev_ultrafast` 0.1.2 (was 0.1.1) and the vendored `sidecar/bridge.py`
+  carries the two upstream fixes above. Both ship as patch files under `patches/`, with
+  `patches/README.md` saying how to apply them to their upstream revisions; `NOTICE` records the
+  revisions and SHA-256 hashes of what ships.
+- **An upgrade rebuilds a managed environment an earlier release built.** Importing the engine was
+  the only readiness question, so a machine that already had `~/.browser-use-mcp/env` kept the old
+  engine and never received the page-load fix above. The probed engine version is now compared with
+  the wheel this package carries; a mismatch rebuilds the managed environment on the next browser
+  call (the first one after upgrading waits for that install once). A configured `--python` is left
+  alone — that interpreter is the caller's to manage, so its engine version is their decision — but
+  the doctor now warns about the mismatch and names the command that installs the bundled wheel
+  there.
+
 ## [0.1.2] - 2026-10-28
 
 Documentation only: the server behaves exactly as 0.1.1.
@@ -194,7 +233,8 @@ These are the pre-release fixes that made the first version safe to publish.
 - `browser-use-mcp` is MIT licensed and bundles or vendors MIT work from `dsh-browser-use`,
   `jev-ultrafast` and `browser-harness`; see [NOTICE](NOTICE).
 
-[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.0

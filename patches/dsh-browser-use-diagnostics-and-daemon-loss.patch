@@ -1,0 +1,204 @@
+diff --git a/sidecar/bridge.py b/sidecar/bridge.py
+index a995d24..92ba820 100644
+--- a/sidecar/bridge.py
++++ b/sidecar/bridge.py
+@@ -634,6 +634,28 @@ class Session:
+         self.owned_browser = None
+         self._open_browser = open_browser
+         self._launch = launch
++        # The CDP session `_watch_diagnostics` enabled console and network events on, or None. The
++        # engine attaches to a new tab when a click opens one, so this is compared again after every
++        # observation rather than set once per sidecar.
++        self._diagnostics_session = None
++
++    def _watch_diagnostics(self):
++        """Enable Runtime and Network on the CDP session this run drives, once per session.
++
++        The daemon's event buffer only holds domains a session has enabled: Browser Harness enables
++        them on the session it attached to when it started, but this run drives a tab session of its
++        own, so without this the buffer carries no console entry and no failed request for the page
++        `diagnostics` reports. Best effort on purpose -- diagnostics are a side channel, so a domain
++        that cannot be enabled must never fail the browser call that asked for it.
++        """
++        if self.browser is None or self.browser.session == self._diagnostics_session:
++            return
++        self._diagnostics_session = self.browser.session
++        for domain in ("Runtime", "Network"):
++            try:
++                self.browser.call(f"{domain}.enable")
++            except Exception:
++                pass  # best effort: the page call this belongs to goes on without diagnostics
+ 
+     def _connect(self, params):
+         """Point Browser Harness at a browser before anything connects to one."""
+@@ -681,6 +703,9 @@ class Session:
+         self.close()
+         self._connect(params)
+         self.browser = self._open_browser(url, reuse=bool(params.get("reuse")))
++        # Before the first observation: a page starts logging the moment it loads, and the buffer the
++        # first `diagnostics` call drains has to have been listening on this run's own session.
++        self._watch_diagnostics()
+         try:
+             self.page = self.browser.observe(screenshot=False)
+         except Exception:
+@@ -693,6 +718,9 @@ class Session:
+         if self.browser is None:
+             raise BridgeError("no_session", "Open a page first.")
+         self.page = self.browser.observe(screenshot=False)
++        # Following a link that opens a tab moves the engine onto a new CDP session, and that is the
++        # session the next `diagnostics` call filters by.
++        self._watch_diagnostics()
+         return {"page": observation(self.page)}
+ 
+     def evaluate(self, params):
+@@ -775,6 +803,9 @@ class Session:
+         self.browser.settle(action["kind"])
+         before = self.page["fingerprint"]
+         self.page = self.browser.observe(screenshot=False)
++        # A click may have followed the engine into a tab it opened, so the diagnostics session is
++        # re-checked here too: the new tab's console is the one a caller will ask about.
++        self._watch_diagnostics()
+         self.history = [*self.history, {
+             "action": action["label"], "kind": action["kind"], "text": text, "operation": operation,
+             "target": target, "page_changed": self.page["fingerprint"] != before,
+@@ -832,6 +863,10 @@ class Session:
+     def diagnostics(self, params):
+         if self.browser is None:
+             raise BridgeError("no_session", "Open a page first.")
++        # Safety net for a session this sidecar has not observed yet: events only arrive from a
++        # session whose domains were enabled, and an empty report is the one answer `diagnostics`
++        # must never give when the page has something to say.
++        self._watch_diagnostics()
+         report = console_events(drain_events(), self.browser.session)
+         report["url"] = self.page["url"] if self.page else ""
+         return report
+@@ -891,11 +926,14 @@ class Session:
+                 pass  # a lost tab or session is already closed as far as this sidecar is concerned
+         self.browser, self.page = None, None
+         self.history = []
++        self._diagnostics_session = None
+         return {"closed": True}
+ 
+     def shutdown(self, params):
+         """Release the tab, close the owned browser, and stop the daemon that owned the connection."""
+         self.close({})
++        # The session that was watched is gone with the tab; a browser that opens later is a new one.
++        self._diagnostics_session = None
+         if self.owned_browser is not None:
+             # Wait for the process to leave before anything launches on this profile again.
+             self.owned_browser.terminate()
+@@ -938,6 +976,16 @@ def dispatch(session, request):
+     except BridgeError as error:
+         return {"kind": error.kind, "message": str(error), **error.extra}
+     except (ValueError, RuntimeError, OSError) as error:
++        # A daemon that is gone is not a browser error a caller can act on from the raw exception:
++        # FileNotFoundError names a socket path nobody has, and no MCP client can do anything with
++        # it. The host restarts on `lost_session`, which is the one word it already understands.
++        if isinstance(error, (FileNotFoundError, ConnectionRefusedError)) \
++                and not _ipc.ping(helpers.NAME, timeout=0.2):
++            return {
++                "kind": "lost_session",
++                "message": "The browser daemon is gone, so this session has nobody to ask. Call "
++                           "browser_open again; the next action must start from a fresh observation.",
++            }
+         return {"kind": "browser_error", "message": f"{type(error).__name__}: {error}"}
+ 
+ 
+diff --git a/test/test_bridge.py b/test/test_bridge.py
+index a31fba9..690ced8 100644
+--- a/test/test_bridge.py
++++ b/test/test_bridge.py
+@@ -49,6 +49,9 @@ class FakeBrowser:
+         self.session = "session-1"
+         self.state = state or page(url=url)
+         self.calls = []
++        # The domains this session was asked to enable, in order: diagnostics read an event buffer
++        # that only a session with Runtime/Network enabled feeds.
++        self.enabled = []
+         # What an expression answers, and which expressions were run: the evaluate path has no page
+         # to look at, so the test states the reply instead of trusting a browser to agree with it.
+         self.replies = {}
+@@ -80,6 +83,9 @@ class FakeBrowser:
+             if isinstance(reply, Exception):
+                 raise reply
+             return reply
++        if method.endswith(".enable"):
++            self.enabled.append(method)
++            return {}
+         assert method == "Page.captureScreenshot"
+         return {"data": "anBlZw=="}
+ 
+@@ -497,6 +503,73 @@ def test_diagnostics_keep_only_this_sessions_console_and_failures(monkeypatch, s
+     assert report["url"] == "https://example.test/"
+ 
+ 
++def test_diagnostics_enable_console_and_network_on_the_run_own_session(monkeypatch, session):
++    """The event buffer only carries domains a session enabled, and the run drives its own session."""
++    monkeypatch.setattr(bridge, "drain_events", lambda: [])
++    call(session, "diagnostics")
++    assert session.browser.enabled == ["Runtime.enable", "Network.enable"]
++    call(session, "diagnostics")
++    # Once per session: the second call has nothing new to ask the daemon for.
++    assert session.browser.enabled == ["Runtime.enable", "Network.enable"]
++
++
++def test_a_tab_the_engine_followed_is_watched_as_its_own_session(monkeypatch, session):
++    monkeypatch.setattr(bridge, "drain_events", lambda: [])
++    call(session, "diagnostics")
++    session.browser.session = "session-2"  # the engine followed a link into a tab it opened
++    call(session, "diagnostics")
++    assert session.browser.enabled == ["Runtime.enable", "Network.enable"] * 2
++
++
++def test_open_watches_the_session_before_the_first_observation(monkeypatch):
++    """The first page load is exactly the console output a caller asks about first."""
++    observed = []
++
++    class Watching(FakeBrowser):
++        def observe(self, screenshot=True):
++            observed.append(list(self.enabled))
++            return dict(self.state)
++
++    monkeypatch.setenv("BU_CDP_WS", "ws://127.0.0.1:9/devtools/browser/test")
++    opened = bridge.Session(open_browser=lambda url, reuse=False: Watching(url, reuse=reuse),
++                            launch=pytest.fail)
++    call(opened, "open", url="https://example.test/", mode="attach")
++    assert observed == [["Runtime.enable", "Network.enable"]]
++
++
++def test_a_domain_that_cannot_be_enabled_never_breaks_the_call_it_belongs_to(session, monkeypatch):
++    def refuse(method, **params):
++        if method.endswith(".enable"):
++            raise RuntimeError("Runtime.enable is not available")
++        return {}
++
++    session.browser.call = refuse
++    monkeypatch.setattr(bridge, "drain_events", lambda: [])
++    assert call(session, "diagnostics")["console"] == []
++
++
++def test_a_daemon_that_has_vanished_is_a_lost_session_not_a_raw_os_error(monkeypatch, session):
++    def missing(params):
++        raise FileNotFoundError(2, "No such file or directory")
++
++    session.observe = missing
++    monkeypatch.setattr(bridge._ipc, "ping", lambda name, timeout=1.0: False)
++    error = failure(session, "observe")
++    assert error["kind"] == "lost_session"
++    assert "browser_open" in error["message"]
++    assert "FileNotFoundError" not in error["message"]
++
++
++def test_an_os_error_with_the_daemon_still_answering_stays_a_browser_error(monkeypatch, session):
++    def refused(params):
++        raise ConnectionRefusedError(61, "Connection refused")
++
++    session.observe = refused
++    monkeypatch.setattr(bridge._ipc, "ping", lambda name, timeout=1.0: True)
++    error = failure(session, "observe")
++    assert error["kind"] == "browser_error" and "ConnectionRefusedError" in error["message"]
++
++
+ def test_goal_mode_reports_the_policy_trace_and_needs_both_arguments(session, monkeypatch):
+     from jev_ultrafast import agent as agent_module
+ 

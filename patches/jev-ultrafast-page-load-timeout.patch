@@ -1,0 +1,132 @@
+diff --git a/jev_ultrafast/browser.py b/jev_ultrafast/browser.py
+index 9fd5d0d..b4f3604 100644
+--- a/jev_ultrafast/browser.py
++++ b/jev_ultrafast/browser.py
+@@ -21,6 +21,12 @@ FIRST_LOOK_PAUSE = 2.0
+ BLANK_PAGES = {"about:blank", "about:newtab", "chrome://newtab", "chrome://new-tab-page"}
+ # How long a just-launched browser has to publish that first tab before the run makes its own.
+ STARTUP_TAB_SECONDS = 5.0
++# How long the connection layer waits for ``Page.navigate`` to answer. The call answers as soon as the
++# browser accepts a navigation, so the wait is only ever about a slow origin -- a TLS handshake, a
++# redirect chain, a cold profile -- and the settle loop below is what actually bounds the page load.
++# The harness IPC default (5 s) is sized for one CDP round trip, and applying it here reported a slow
++# page as a failed navigation while the browser was still loading it.
++PAGE_LOAD_TIMEOUT_SECONDS = 120.0
+ 
+ # Count of actions the current page would offer. Cheap enough to poll while a page assembles.
+ ACTION_COUNT = f"(() => {{ const state={READ_STATE}; return state ? state.actions.length : 0; }})()"
+@@ -263,7 +269,10 @@ class Browser:
+             self.viewport = HEADLESS_VIEWPORT
+         self.pin_viewport()
+         if self.owned:
+-            self.call("Page.navigate", url=url)
++            # A page load is not one CDP round trip: this one call gets a page-load timeout, while
++            # every other call keeps the harness default. ``_response_timeout`` is consumed by
++            # ``helpers.cdp`` and never reaches Chrome.
++            self.call("Page.navigate", url=url, _response_timeout=PAGE_LOAD_TIMEOUT_SECONDS)
+             deadline = time.monotonic() + 15
+             while time.monotonic() < deadline:
+                 if self.evaluate("document.readyState") == "complete":
+diff --git a/pyproject.toml b/pyproject.toml
+index 4430780..32cca84 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "jev-ultrafast"
+-version = "0.1.1"
++version = "0.1.2"
+ description = "A browser agent that chooses instead of generating."
+ readme = "README.md"
+ license = "MIT"
+diff --git a/tests/test_page_load_timeout.py b/tests/test_page_load_timeout.py
+new file mode 100644
+index 0000000..26a35cc
+--- /dev/null
++++ b/tests/test_page_load_timeout.py
+@@ -0,0 +1,72 @@
++"""Offline contract for the wait a page navigation gets. No browser is opened.
++
++``Page.navigate`` used to inherit the harness IPC timeout meant for one CDP round trip, so a page
++that took more than 5 s to answer -- a TLS handshake, a redirect chain, a cold profile -- failed the
++run with ``Page.navigate timed out after 5s`` while the browser was fine. The settle loop after the
++call is what actually bounds the page load; these tests pin the page-load timeout that one call
++names, and the harness default every other call keeps.
++
++Run: ``uv run pytest tests/test_page_load_timeout.py``
++"""
++
++import pytest
++from browser_harness.helpers import DEFAULT_IPC_RESPONSE_TIMEOUT_SECONDS
++
++from jev_ultrafast import browser
++
++
++class NavigationStarted(Exception):
++    """Ends ``Browser()`` at the call under test: the settle loops after it need a real page."""
++
++
++def cdp_stub(monkeypatch, calls):
++    """Answer the connection layer, recording the timeout every call names."""
++
++    def cdp(method, session_id=None, _response_timeout=DEFAULT_IPC_RESPONSE_TIMEOUT_SECONDS, **params):
++        calls.append((method, _response_timeout, params))
++        if method == "Target.getTargets":
++            return {"targetInfos": []}
++        if method == "Target.createTarget":
++            return {"targetId": "driven-tab"}
++        if method == "Target.attachToTarget":
++            return {"sessionId": "session-1"}
++        if method == "Page.navigate":
++            raise NavigationStarted
++        return {}
++
++    monkeypatch.setattr(browser, "cdp", cdp)
++
++
++def without_a_real_daemon(monkeypatch):
++    """The parts of a run that talk to a daemon, so only the connection calls around them are left."""
++    monkeypatch.setattr(browser, "ensure_daemon", lambda: None)
++    monkeypatch.setattr(browser, "daemon_tab", lambda: None)
++    monkeypatch.setattr(browser, "run_spares", lambda pages, daemon: set())
++    monkeypatch.setattr(browser, "startup_target", lambda: None)
++    monkeypatch.delenv(browser.VIEWPORT_ENV, raising=False)
++
++
++def test_page_navigate_gets_a_page_load_timeout_and_the_rest_keep_the_harness_default(monkeypatch):
++    calls = []
++    cdp_stub(monkeypatch, calls)
++    without_a_real_daemon(monkeypatch)
++    with pytest.raises(NavigationStarted):
++        browser.Browser("https://slow.example.test/")
++    navigate = [call for call in calls if call[0] == "Page.navigate"]
++    assert len(navigate) == 1
++    _, timeout, params = navigate[0]
++    assert timeout == browser.PAGE_LOAD_TIMEOUT_SECONDS
++    # The timeout is consumed by the connection layer, never sent to Chrome as a page parameter.
++    assert params == {"url": "https://slow.example.test/"}
++    # Every other call named no timeout of its own, so the harness default is what it gets.
++    assert calls
++    assert {timeout for method, timeout, _ in calls if method != "Page.navigate"} == {
++        DEFAULT_IPC_RESPONSE_TIMEOUT_SECONDS
++    }
++
++
++def test_the_page_load_timeout_is_page_load_scale_not_one_round_trip_scale():
++    # The point of the override is a wait that outlives a handshake and a redirect chain, not a
++    # number chosen just above the default.
++    assert browser.PAGE_LOAD_TIMEOUT_SECONDS > DEFAULT_IPC_RESPONSE_TIMEOUT_SECONDS
++    assert browser.PAGE_LOAD_TIMEOUT_SECONDS >= 60
+diff --git a/uv.lock b/uv.lock
+index dae6d45..b4600ab 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -164,7 +164,7 @@ wheels = [
+ 
+ [[package]]
+ name = "jev-ultrafast"
+-version = "0.1.1"
++version = "0.1.2"
+ source = { editable = "." }
+ dependencies = [
+     { name = "browser-harness" },

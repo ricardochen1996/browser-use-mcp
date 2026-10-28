@@ -314,8 +314,12 @@ async function main() {
     passed.push('browser_close closed the tab, and browser_open reused the browser')
 
     // 15. A crashed sidecar is replaced by a new generation, keeps no stale table, and leaks no daemon.
-    const daemonPidPath = join(daemonRuntimeDir(), `bu-browser-use-mcp-${PROFILE}.pid`)
-    assert.ok(existsSync(daemonPidPath), `the running browser's daemon pid should exist at ${daemonPidPath}`)
+    // The daemon name carries this server process's token, so find its pid file by stem, not by a
+    // name that stops at the profile.
+    const daemonPidPath = readdirSync(daemonRuntimeDir())
+      .filter(name => name.startsWith(`bu-browser-use-mcp-${PROFILE}-p`) && name.endsWith('.pid'))
+      .map(name => join(daemonRuntimeDir(), name))[0]
+    assert.ok(daemonPidPath !== undefined, `the running browser's daemon pid file should exist in ${daemonRuntimeDir()}`)
     const crashedDaemon = Number(readFileSync(daemonPidPath, 'utf8').trim())
     const [sidecar] = sidecarChildren(first.transport.pid)
     assert.ok(sidecar !== undefined, 'the server has a sidecar child while a page is open')

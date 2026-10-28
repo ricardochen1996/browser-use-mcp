@@ -42,7 +42,7 @@ npm install -g @ricardochen1996/browser-use-mcp@latest
 browser-use-mcp --version
 ```
 
-Pin a version instead of `@latest` (`@0.1.2`, say) when clients should run one fixed release. The
+Pin a version instead of `@latest` (`@0.1.3`, say) when clients should run one fixed release. The
 server itself is plain ESM and needs no build step; the Python side (the engine and
 `browser-harness`) is provisioned automatically on first use, or ahead of time:
 

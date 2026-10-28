@@ -112,7 +112,7 @@ browser-use-mcp doctor --mode launch
 ```
 
 ```text
-browser-use-mcp v0.1.2 — self-check (Node v22.23.2, darwin-arm64)
+browser-use-mcp v0.1.3 — self-check (Node v22.23.2, darwin-arm64)
 
 Transport: stdio (MCP over stdin/stdout)
 Connection: launch Chrome/Chromium, profile "default" at /Users/you/.browser-use-mcp/profiles/default
@@ -124,7 +124,7 @@ Tools   : browser_open, browser_page, browser_act, browser_eval, browser_screens
 Session : idle (this transport has no browser session yet)
 
 Engine   : /Users/you/.browser-use-mcp/env/bin/python (Python 3.12.14, chosen by managed environment)
-           jev_ultrafast 0.1.1 at …/env/lib/python3.12/site-packages/jev_ultrafast
+           jev_ultrafast 0.1.2 at …/env/lib/python3.12/site-packages/jev_ultrafast
            browser-harness 0.1.13
 Install  : none in this process; the engine is already importable
 Sidecar  : /…/node_modules/@ricardochen1996/browser-use-mcp/sidecar/bridge.py

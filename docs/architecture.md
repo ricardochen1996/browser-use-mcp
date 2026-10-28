@@ -116,7 +116,10 @@ DevTools connection, its own tab, and — in launch mode — its own profile dir
 is shared by default (`--attach-sharing shared`): each session gets its own sidecar, daemon and tab,
 and Chrome asks "Allow remote debugging?" once per connection, so N live sessions mean N prompts.
 `--attach-sharing exclusive` claims the DevTools endpoint through a lock file under
-`<state root>/attachments/` and refuses the second live holder with a fix.
+`<state root>/attachments/` and refuses the second live holder with a fix. A daemon name carries the
+server process's token (`-p<pid>`) as well as the session label, so two server processes configured
+with the same profile never share a daemon — one process's shutdown cannot stop the browser under
+the other.
 
 **Launch mode** gives every session a browser this server owns. Two servers configured with the
 **same profile** are refused rather than silently sharing a browser: the first holds a lock file in
@@ -139,8 +142,8 @@ running forever. Named profiles are kept; only anonymous session directories are
 The engine is a Python package with Python dependencies; `npm install` cannot build one. So this
 package carries what it needs:
 
-- `vendor/jev_ultrafast-0.1.1-py3-none-any.whl` — the engine, built from a pinned upstream revision
-  (`vendor/jev-ultrafast.json`).
+- `vendor/jev_ultrafast-0.1.2-py3-none-any.whl` — the engine, built from a pinned upstream revision
+  (`vendor/jev-ultrafast.json`, plus the page-load patch in `patches/`).
 - `vendor/requirements.txt` — the sidecar's dependencies (`browser-harness`, `cdp-use`, …), pinned by
   version *and* by the hash of every artifact.
 
@@ -148,6 +151,13 @@ On first use it finds a Python 3.12+ on the machine (or uses `uv`, which can fet
 `<state root>/env`, and installs the requirements with `uv pip` (or `pip --require-hashes` without
 uv). One install at a time, across processes, via a lock in the state root. The environment is probed
 by importing the engine, and `install.json` records what was built.
+
+An environment an earlier release built stays importable, so importing it is not the whole question:
+the probed engine version is compared with the wheel this package carries, and a different version
+rebuilds the managed environment on the next browser call — the fixes a release carries live in that
+wheel. A configured `--python` is left alone: that interpreter is the caller's to manage, so its
+engine version is their decision, and the doctor only warns about the mismatch and names the command
+that installs the bundled wheel there.
 
 The state root is `${BROWSER_USE_MCP_HOME:-~/.browser-use-mcp}`:
 
@@ -196,7 +206,8 @@ server's environment or the sidecar's, so a stale key cannot leak into an unrela
 
 Reused from `dsh-browser-use` (MIT, see [NOTICE](../NOTICE)):
 
-- `sidecar/bridge.py`, the line-delimited JSON sidecar — behaviour unchanged.
+- `sidecar/bridge.py`, the line-delimited JSON sidecar — behaviour unchanged, apart from the local
+  diagnostics/daemon-loss patch under `patches/`.
 - The engine (`jev_ultrafast`) and its `browser-harness` connection layer, as the bundled wheel.
 - The action-space rendering, the freshness rule, the "one connection" rule, the exact operation set,
   and the direct-mode tool descriptions.

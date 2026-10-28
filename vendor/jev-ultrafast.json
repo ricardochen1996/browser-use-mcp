@@ -1,6 +1,7 @@
 {
   "repository": "https://github.com/ricardochen1996/jev-ultrafast",
   "rev": "50b319fd3e56052232b3a8de5695af9d30f77efb",
-  "version": "0.1.1",
-  "wheel": "jev_ultrafast-0.1.1-py3-none-any.whl"
+  "version": "0.1.2",
+  "wheel": "jev_ultrafast-0.1.2-py3-none-any.whl",
+  "patch": "patches/jev-ultrafast-page-load-timeout.patch"
 }

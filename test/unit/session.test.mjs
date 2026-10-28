@@ -11,7 +11,7 @@ import { after, describe, it } from 'node:test'
 
 import { resolveConfig } from '../../lib/config.js'
 import { BrowserSession, FileLock, SessionBusy, SessionRefusal } from '../../lib/session.js'
-import { daemonIdentity } from '../../lib/sidecar.js'
+import { daemonIdentity, daemonName } from '../../lib/sidecar.js'
 
 const HOME = mkdtempSync(join(tmpdir(), 'browser-use-mcp-session-'))
 after(() => rmSync(HOME, { recursive: true, force: true }))
@@ -287,6 +287,26 @@ describe('a lost generation', () => {
     assert.equal(session.fingerprintFor(1), undefined, 'the dead generation’s observations are gone')
     await session.shutdown()
   })
+
+  it('turns a vanished browser session from browser_page into an actionable refusal', async () => {
+    const { session } = sessionFor({
+      handlers: {
+        open: () => ({ page: page('one') }),
+        observe: () => {
+          throw Object.assign(new Error('the browser daemon is gone. Call browser_open again.'), { kind: 'lost_session' })
+        },
+      },
+    })
+    await session.open('https://example.test/')
+    await assert.rejects(session.observe(), error => {
+      assert.ok(error instanceof SessionRefusal)
+      assert.equal(error.kind, 'lost_session')
+      assert.match(error.message, /browser_open again/u)
+      return true
+    })
+    assert.equal(session.fingerprintFor(1), undefined, 'the page table of a lost session is forgotten')
+    await session.shutdown()
+  })
 })
 
 describe('close and shutdown', () => {
@@ -354,27 +374,47 @@ describe('attach sharing', () => {
 describe('daemon identity', () => {
   // A short caller-supplied runtime directory; the shared switch keeps the daemon name in the file
   // stem, which is what the real server always sets (it starts several sidecars on one directory).
-  const shortEnv = { BH_RUNTIME_DIR: join(tmpdir(), 'bum-test-runtime'), BH_RUNTIME_DIR_SHARED: '1' }
+  // Short enough that the full `<stem>-<instance><generation>` name fits inside sun_path here.
+  const shortEnv = { BH_RUNTIME_DIR: join(tmpdir(), 'bu-rt'), BH_RUNTIME_DIR_SHARED: '1' }
 
-  it('names the daemon after the session when the socket path fits', () => {
+  it('names the daemon after the session and the server process when the socket path fits', () => {
     const { name, files } = daemonIdentity(shortEnv, 'default', 1)
-    assert.equal(name, 'browser-use-mcp-default')
+    assert.equal(name, `browser-use-mcp-default-p${process.pid}`)
     assert.ok(files.sockPath.length <= 100, files.sockPath)
   })
 
+  it('keeps two server processes and two generations apart', () => {
+    const first = daemonIdentity(shortEnv, 'default', 1, 'p100')
+    const second = daemonIdentity(shortEnv, 'default', 1, 'p200')
+    assert.equal(first.name, 'browser-use-mcp-default-p100')
+    assert.notEqual(first.name, second.name, 'two server processes never own one daemon')
+    assert.equal(daemonIdentity(shortEnv, 'default', 1, 'p100').name, first.name, 'the name is stable for one process')
+    assert.equal(daemonIdentity(shortEnv, 'default', 2, 'p100').name, 'browser-use-mcp-default-p100-g2')
+    assert.notEqual(daemonIdentity(shortEnv, 'default', 2, 'p100').name, first.name, 'a generation is a different daemon')
+  })
+
+  it('keeps every daemon name inside Browser Harness’s own 64-character limit', () => {
+    // The label is already at Browser Harness's limit; the instance and generation tokens have to fit
+    // inside it, not push the name past it, or the daemon cannot start at all.
+    const name = daemonName('a'.repeat(64), 1_000)
+    assert.ok(name.length <= 64, `${name.length}: ${name}`)
+    assert.match(name, /^browser-use-mcp-a+-p\d+-g1000$/u)
+  })
+
   it('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
-    // The long-name path has to be long on every platform: a label at the 64-character stem limit
-    // plus an 8-character runtime directory clears sun_path's 100 bytes on macOS and on Linux
-    // (where tmpdir() is only /tmp), while still leaving room for the short digest fallback.
-    const longRuntime = { BH_RUNTIME_DIR: join(tmpdir(), 'b'.repeat(8)), BH_RUNTIME_DIR_SHARED: '1' }
+    // A label at Browser Harness's 64-character limit already makes the full name too long for
+    // sun_path; the digest has to bring the path back inside the budget, under this runtime directory.
+    const longRuntime = { BH_RUNTIME_DIR: join(tmpdir(), 'bbb'), BH_RUNTIME_DIR_SHARED: '1' }
     const label = 'a'.repeat(64)
     const { name, files } = daemonIdentity(longRuntime, label, 1)
-    assert.match(name, /^browser-use-mcp-[0-9a-f]{10}$/u)
+    assert.match(name, /^browser-use-mcp-[0-9a-f]{10}-p\d+$/u)
     assert.ok(files.sockPath.length <= 100, files.sockPath)
-    // The same label and generation must find the same daemon again; another one must not collide.
+    // The same label, generation and server process must find the same daemon again; another one
+    // must not collide.
     assert.equal(daemonIdentity(longRuntime, label, 1).name, name)
     assert.notEqual(daemonIdentity(longRuntime, label, 2).name, name)
     assert.notEqual(daemonIdentity(longRuntime, label.slice(0, -1), 1).name, name)
+    assert.notEqual(daemonIdentity(longRuntime, label, 1, 'p999').name, name)
   })
 
   it('refuses a runtime directory so long that no daemon name can fit, and names the fix', () => {

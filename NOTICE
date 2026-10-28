@@ -11,10 +11,14 @@ action space, and executes one guarded operation at a time.
 - Upstream: [`dsh-browser-use`](https://github.com/ricardochen1996/dsh-browser-use) v0.8.2,
   `sidecar/bridge.py`
 - Upstream revision: `dfe8bfc5221cb6573c1a29bb258059f9a430cd0d`
-- SHA-256 of the vendored file: `7c17aa05afae0f03cff5af63a233d097c5982d273437608b1e9126055561085d`
-- Changes: the module docstring names this project as its host only; behaviour is unchanged.
+- SHA-256 of the vendored file: `cc58032158c04a75cb88f764a4ca9de62e9b20f62b940aeece5fd90e08b6775f`
+- Changes: the module docstring names this project as its host; plus the local patch in
+  `patches/dsh-browser-use-diagnostics-and-daemon-loss.patch` — `Runtime.enable` and
+  `Network.enable` are issued on the CDP session the run drives (so `browser_console` is no
+  longer empty), and a vanished Browser Harness daemon is answered with `lost_session`
+  instead of a raw `OSError`. Behaviour is otherwise unchanged.
 
-## `vendor/jev_ultrafast-0.1.1-py3-none-any.whl`
+## `vendor/jev_ultrafast-0.1.2-py3-none-any.whl`
 
 The browser engine: a dynamic, indexed action space, a guarded executor, and the Jev/TypeSafe
 policy loop. Imported as a library by `sidecar/bridge.py`; no engine source ships in this
@@ -22,7 +26,10 @@ package.
 
 - Upstream: [`jev-ultrafast`](https://github.com/ricardochen1996/jev-ultrafast) v0.1.1,
   revision `50b319fd3e56052232b3a8de5695af9d30f77efb`
-- SHA-256: `641dbc1cdf9b502e382e3a9d06d4f2545ebd7e5038f66fab6f3bc2ed68934103`
+- Version of the bundled wheel: 0.1.2, built from that revision with the local patch in
+  `patches/jev-ultrafast-page-load-timeout.patch` (a page-load-scale `Page.navigate` timeout,
+  so a page that takes more than 5 s to load no longer fails `browser_open`)
+- SHA-256: `d2941d40b286ac710ec8ee84925dd94486b3be719c596461db129884581edd20`
 
 ## `vendor/requirements.txt`
 
