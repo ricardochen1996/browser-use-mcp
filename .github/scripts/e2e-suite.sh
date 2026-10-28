@@ -8,7 +8,7 @@
 # both are lifted into annotations.
 set +e
 
-suite="${1:?usage: e2e-suite.sh <stdio|http|attach|intent|protocol>}"
+suite="${1:?usage: e2e-suite.sh <stdio|http|attach|daemon-isolation|intent|protocol>}"
 log="${RUNNER_TEMP:-/tmp}/e2e-${suite}.log"
 
 echo "::group::test/e2e/${suite}.mjs"

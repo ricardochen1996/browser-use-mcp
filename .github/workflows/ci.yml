@@ -128,6 +128,11 @@ jobs:
           BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
         run: bash .github/scripts/e2e-suite.sh attach
 
+      - name: End-to-end daemon isolation
+        env:
+          BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
+        run: bash .github/scripts/e2e-suite.sh daemon-isolation
+
       - name: End-to-end Jev intent
         env:
           BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e
