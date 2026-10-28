@@ -259,9 +259,19 @@ function daemons() {
     })
 }
 
-/** The daemon name one server process must own for this profile (first generation). */
-function expectedDaemonName(serverPid) {
-  return `browser-use-mcp-${PROFILE}-p${serverPid}`
+/**
+ * The daemon name one server process owns, found by the process token in its name.
+ *
+ * A name is `browser-use-mcp-<stem>-p<pid>` (plus a `-g<N>` generation suffix), where `<stem>` is the
+ * profile or, when the socket path would be too long for the platform's runtime directory, a short
+ * digest of it. Which of the two a given checkout gets depends on `tmpdir()`, so the test keys on the
+ * pid token every name carries instead of rebuilding the production naming rule here.
+ */
+function daemonNameFor(serverPid) {
+  const owned = daemons().filter(daemon => new RegExp(`-p${serverPid}(-g\\d+)?$`, 'u').test(daemon.name))
+  assert.equal(owned.length, 1,
+    `expected exactly one daemon owned by server pid ${serverPid}, found: ${daemons().map(daemon => daemon.name).join(', ') || '(none)'}`)
+  return owned[0].name
 }
 
 /** Remove daemon files a crashed earlier run left in this test's runtime directory. */
@@ -320,13 +330,11 @@ async function main() {
     const running = daemons()
     const names = running.map(daemon => daemon.name)
     assert.equal(running.length, 2, `expected two daemons, found: ${names.join(', ') || '(none)'}`)
-    for (const [label, pid] of [['first', firstPid], ['second', secondPid]]) {
-      const expected = expectedDaemonName(pid)
-      assert.ok(names.includes(expected), `the ${label} server (pid ${pid}) should own ${expected}; daemons: ${names.join(', ')}`)
-    }
-    assert.notEqual(expectedDaemonName(firstPid), expectedDaemonName(secondPid))
+    const firstDaemon = daemonNameFor(firstPid)
+    const secondDaemon = daemonNameFor(secondPid)
+    assert.notEqual(firstDaemon, secondDaemon, 'the two servers must not share one daemon')
     for (const daemon of running) assert.ok(daemon.alive, `daemon ${daemon.name} (pid ${daemon.pid}) is running`)
-    passed.push(`each server has its own daemon: ${[...new Set(names)].join(', ')}`)
+    passed.push(`each server has its own daemon: ${firstDaemon}, ${secondDaemon}`)
 
     // 2. Each server drives its own tab: the page each one reads carries the fragment only it opened.
     const hrefA = await call(first.client, 'browser_eval', { expression: 'location.href' })
@@ -338,16 +346,15 @@ async function main() {
 
     // 3. Stop the first server the way an MCP client does. Its own daemon goes with it; the second
     // server's daemon, and the tab it drives, must not be touched.
-    const firstDaemon = expectedDaemonName(firstPid)
     const firstDaemonPid = running.find(daemon => daemon.name === firstDaemon)?.pid
-    const secondDaemonPid = running.find(daemon => daemon.name === expectedDaemonName(secondPid))?.pid
+    const secondDaemonPid = running.find(daemon => daemon.name === secondDaemon)?.pid
     await first.client.close()
     first = undefined
     assert.ok(await waitGone(firstPid, 30_000), 'the first server process exited when its client closed')
     if (Number.isInteger(firstDaemonPid)) assert.ok(await waitGone(firstDaemonPid, 30_000), 'the first server\u2019s daemon stopped with it')
     assert.ok(Number.isInteger(secondDaemonPid) && pidAlive(secondDaemonPid), 'the second server\u2019s daemon is still running')
     assert.ok(!existsSync(join(RUNTIME_DIR, `bu-${firstDaemon}.pid`)), 'the first server\u2019s daemon files are gone')
-    assert.ok(existsSync(join(RUNTIME_DIR, `bu-${expectedDaemonName(secondPid)}.pid`)), 'the second server\u2019s daemon files remain')
+    assert.ok(existsSync(join(RUNTIME_DIR, `bu-${secondDaemon}.pid`)), 'the second server\u2019s daemon files remain')
     passed.push('stopping the first server stopped its own daemon only')
 
     // 4. The surviving server still serves a full observation of its own page.
@@ -371,7 +378,7 @@ async function main() {
 
     // Nothing from the stopped server is left behind, and the surviving one still owns its daemon.
     const remaining = daemons()
-    assert.deepEqual(remaining.map(daemon => daemon.name), [expectedDaemonName(secondPid)],
+    assert.deepEqual(remaining.map(daemon => daemon.name), [secondDaemon],
       `daemons left: ${remaining.map(daemon => `${daemon.name} (${daemon.pid})`).join(', ')}`)
     passed.push('no daemon of the stopped server outlived it')
   } finally {
