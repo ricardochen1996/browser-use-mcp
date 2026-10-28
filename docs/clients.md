@@ -4,42 +4,56 @@
 the clients people actually use: **[Claude Code](#claude-code)**, **[Claude Desktop](#claude-desktop)**,
 **[Cursor](#cursor)**, **[Codex](#codex)**, **[DSH](#dsh)**, and a plain
 **[`mcpServers` JSON](#generic-mcpservers-json)** any MCP host understands. Every stdio snippet
-starts `node` with the server's absolute path and runs from any working directory.
+starts the published package (`npx -y @ricardochen1996/browser-use-mcp@latest`) and runs from any
+working directory.
 
 ## Before you paste: three things
 
-1. **Use your own absolute path.** The snippets below use this checkout's path,
-   `/Users/ricardo.chen/PersonalGit/browser-use-mcp`. Replace it with wherever you cloned the
-   repository. Do not rely on a relative path: GUI applications do not start in the directory you
-   ran a shell command from.
+1. **The snippets use the npm package.** They launch the published release through `npx`, so there
+   is nothing to clone and nothing to build. If you installed the command globally
+   (`npm install -g @ricardochen1996/browser-use-mcp@latest`), replace `"command": "npx"` plus its
+   `args` with `"command": "browser-use-mcp"`. If a GUI client cannot find `npx` or
+   `browser-use-mcp` on its short `PATH`, put the absolute path from `command -v browser-use-mcp`
+   (or `command -v npx`) in `command` instead; GUI applications do not start in the directory you
+   ran a shell command from. To run a clone instead, point the command at
+   `node /path/to/browser-use-mcp/bin/browser-use-mcp.mjs`.
 2. **Make sure `node` is the Node 22+ you expect.** The server needs Node `^22.19.0 || >=24.0.0`.
-   A GUI-launched client often has a shorter `PATH` than your shell. If it cannot find `node`, run
-   `which node` in your shell and put that absolute path in `command` instead — for example
-   `/opt/homebrew/bin/node`.
+   A GUI-launched client often has a shorter `PATH` than your shell. If it cannot find `node` or
+   `npx`, run `which node` in your shell and put that absolute path in `command` instead — for
+   example `/opt/homebrew/bin/node`.
 3. **stdout is the protocol; logs are stderr.** While serving MCP, stdout carries JSON-RPC frames
    and every log line goes to stderr. When a client shows nothing, run the exact command in a
    terminal: the JSON-RPC traffic appears on stdout and `browser-use-mcp …` log lines on stderr,
    which is where startup and engine-install problems are explained.
 
-The package is **not published to npm yet**. Install from the checkout:
+**Install.** The package is published on npm as
+[`@ricardochen1996/browser-use-mcp`](https://www.npmjs.com/package/@ricardochen1996/browser-use-mcp).
+Nothing needs to be installed for the snippets below — `npx` fetches and runs the latest release:
 
 ```bash
-cd /Users/ricardo.chen/PersonalGit/browser-use-mcp
-npm install
+npx -y @ricardochen1996/browser-use-mcp@latest --version
 ```
 
-That is enough — the server itself is plain ESM. The Python side (the engine and `browser-harness`)
-is provisioned automatically on first use, or ahead of time:
+Install the command globally if you would rather name it directly (and for the terminal checks
+below):
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs install
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor
+npm install -g @ricardochen1996/browser-use-mcp@latest
+browser-use-mcp --version
 ```
 
-If you prefer a command name over an absolute path, `npm link` in the checkout puts
-`browser-use-mcp` on your `PATH`; GUI clients may still not see that `PATH`, so the absolute path is
-the reliable form. Every snippet below is **stdio** unless it says otherwise; the server's default
-transport is stdio, one browser per server process.
+Pin a version instead of `@latest` (`@0.1.2`, say) when clients should run one fixed release. The
+server itself is plain ESM and needs no build step; the Python side (the engine and
+`browser-harness`) is provisioned automatically on first use, or ahead of time:
+
+```bash
+browser-use-mcp install
+browser-use-mcp doctor
+```
+
+Without a global install, `npx -y @ricardochen1996/browser-use-mcp@latest install` and
+`… doctor` do the same. Every snippet below is **stdio** unless it says otherwise; the server's
+default transport is stdio, one browser per server process.
 
 Two defaults decide what the agent sees:
 
@@ -62,20 +76,21 @@ Two equivalent ways to wire it.
 ```bash
 # Attach mode (the default): use the Chrome you browse with.
 claude mcp add --scope user browser-use \
-  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+  -- npx -y @ricardochen1996/browser-use-mcp@latest
 
 # Launch mode: a dedicated headless browser with its own profile.
 claude mcp add --scope user browser-use \
   --env BROWSER_USE_MCP_MODE=launch \
   --env BROWSER_USE_MCP_HEADLESS=1 \
   --env BROWSER_USE_MCP_PROFILE=claude-code \
-  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+  -- npx -y @ricardochen1996/browser-use-mcp@latest
 ```
 
 - `--scope user` makes it available in every project. Use `--scope project` to write a `.mcp.json`
   in the current repository instead, or omit it for local-only.
 - Add `--env TYPESAFE_API_KEY=…` (or the `TEXT_MODEL_*` group) to enable `browser_goal` and
   `browser_act` intents; see [Jev credentials](#jev-credentials).
+- With a global install, `-- browser-use-mcp` (or its absolute path) replaces the `npx` command.
 - Check it with `claude mcp list`, then ask Claude to call `browser_doctor`.
 
 ### Project `.mcp.json`
@@ -84,8 +99,8 @@ claude mcp add --scope user browser-use \
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
-      "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
+      "command": "npx",
+      "args": ["-y", "@ricardochen1996/browser-use-mcp@latest"],
       "env": {
         "BROWSER_USE_MCP_MODE": "launch",
         "BROWSER_USE_MCP_HEADLESS": "1",
@@ -108,8 +123,8 @@ trailing commas):
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
-      "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
+      "command": "npx",
+      "args": ["-y", "@ricardochen1996/browser-use-mcp@latest"],
       "env": {
         "BROWSER_USE_MCP_MODE": "launch",
         "BROWSER_USE_MCP_PROFILE": "claude-desktop"
@@ -136,8 +151,8 @@ Project configuration goes in `.cursor/mcp.json`; to make it available everywher
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
-      "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
+      "command": "npx",
+      "args": ["-y", "@ricardochen1996/browser-use-mcp@latest"],
       "env": {
         "BROWSER_USE_MCP_MODE": "launch",
         "BROWSER_USE_MCP_HEADLESS": "1",
@@ -159,8 +174,8 @@ Add the server to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.browser-use]
-command = "node"
-args = ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"]
+command = "npx"
+args = ["-y", "@ricardochen1996/browser-use-mcp@latest"]
 startup_timeout_sec = 120
 
 [mcp_servers.browser-use.env]
@@ -169,9 +184,10 @@ BROWSER_USE_MCP_HEADLESS = "1"
 BROWSER_USE_MCP_PROFILE = "codex"
 ```
 
-`startup_timeout_sec` is optional; a first run that has to provision the Python environment can take
-a minute or two, so raise it if your Codex build gives up before the server answers. Restart Codex
-after saving, then check that `browser_doctor` is in its tool list.
+`startup_timeout_sec` is optional; the first `npx` run downloads the package and a run that has to
+provision the Python environment can take a minute or two, so raise it if your Codex build gives up
+before the server answers. Restart Codex after saving, then check that `browser_doctor` is in its
+tool list.
 
 ---
 
@@ -191,9 +207,10 @@ DSH loads MCP servers through its `@deepseek-ai/dsh-mcp-client` plugin, configur
       config:
         serverName: browser-use
         transport: stdio
-        command: node
+        command: npx
         args:
-          - /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+          - '-y'
+          - '@ricardochen1996/browser-use-mcp@latest'
         env:
           BROWSER_USE_MCP_MODE: launch
           BROWSER_USE_MCP_HEADLESS: '1'
@@ -241,9 +258,10 @@ Desktop and Cursor snippets, with the most common knobs shown:
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs",
+        "-y",
+        "@ricardochen1996/browser-use-mcp@latest",
         "--mode", "launch",
         "--headless",
         "--profile", "my-agent"
@@ -258,9 +276,9 @@ Desktop and Cursor snippets, with the most common knobs shown:
 }
 ```
 
-Server flags go in `args`; environment variables go in `env`. `--headless` and
-`BROWSER_USE_MCP_HEADLESS=1` mean the same thing — either spelling is fine, and a flag wins if both
-are present. The full list is in the [configuration reference](config.md).
+Server flags go in `args`, after the package spec; environment variables go in `env`. `--headless`
+and `BROWSER_USE_MCP_HEADLESS=1` mean the same thing — either spelling is fine, and a flag wins if
+both are present. The full list is in the [configuration reference](config.md).
 
 Mutually equivalent spellings for the same settings:
 
@@ -336,14 +354,17 @@ Start it once:
 
 ```bash
 # Default: every session drives the Chrome you already use (attach, shared by default).
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
+browser-use-mcp \
   --transport http --host 127.0.0.1 --port 7331 --path /mcp
 
 # Or: every session gets a tab in one dedicated browser this server launches.
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
+browser-use-mcp \
   --transport http --host 127.0.0.1 --port 7331 --path /mcp \
   --mode launch --headless
 ```
+
+Without a global install, prefix each line with
+`npx -y @ricardochen1996/browser-use-mcp@latest` instead of `browser-use-mcp`.
 
 The endpoint is then `http://127.0.0.1:7331/mcp`. Flags given here apply to every session; clients
 only supply the URL.
@@ -413,9 +434,9 @@ Notes:
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Client says the server exited immediately | `node` not found, or a bad flag value | Run the same command in a terminal and read stderr; a configuration error exits with code `2` and names the field. |
+| Client says the server exited immediately | `node` or `npx` not found, or a bad flag value | Run the same command in a terminal and read stderr; a configuration error exits with code `2` and names the field. |
 | Server starts but no tools appear | Wrong config file, or the client was not restarted | Use the client's MCP list/log view; restart the client after editing its config. |
-| First call takes minutes, then works | First run is provisioning the Python environment | Wait, or run `node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs install` first. Behind a proxy, set `HTTPS_PROXY`. |
+| First call takes minutes, then works | First run is provisioning the Python environment | Wait, or run `browser-use-mcp install` (or `npx -y @ricardochen1996/browser-use-mcp@latest install`) first. Behind a proxy, set `HTTPS_PROXY`. |
 | `browser_doctor` reports `Status: ready` but calls fail | The profile is held by another server, or the browser process died | Read the failure text — a profile collision names `--profile`; a dead browser is rebuilt on the next `browser_open`. |
 | Profile lock error naming `--profile` | Two servers on one browser profile | Stop the other server or give this one `--profile <other-name>`. |
 | Attach mode cannot find your Chrome (macOS) | Full Disk Access missing | System Settings → Privacy & Security → Full Disk Access, add the host app, restart it. |

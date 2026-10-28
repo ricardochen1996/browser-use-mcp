@@ -83,26 +83,36 @@ Observation 3. Targets below are valid only for this observation.
 
 **驱动哪个浏览器。** 默认是 **attach** 模式：服务器直接驱动你日常用的 Chrome，agent 看到的登录态和标签页就是你自己的。先在那个 Chrome 里打开一次远程调试（`chrome://inspect/#remote-debugging` → 允许）；macOS 上还需要给运行服务器的应用**完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。想要一个隔离的浏览器，就加 `--mode launch`，服务器会在状态根下用自己的 profile 启动一个专属 Chrome。
 
-这个包**还没有发布到 npm**——从 checkout 直接运行：
+**安装。** 这个包已发布到 npm：
+[`@ricardochen1996/browser-use-mcp`](https://www.npmjs.com/package/@ricardochen1996/browser-use-mcp)，
+不装任何东西也可以直接跑最新版：
 
 ```bash
-cd /Users/ricardo.chen/PersonalGit/browser-use-mcp
-npm install
+npx -y @ricardochen1996/browser-use-mcp@latest --version
 ```
 
-在 checkout 里执行 `npm link` 还会把 `browser-use-mcp` 命令放进 `PATH`，方便在终端里用；
-GUI 客户端用下面给出的绝对路径更可靠。
+或者安装 `browser-use-mcp` 命令，下面终端里的命令都按这个写法：
+
+```bash
+npm install -g @ricardochen1996/browser-use-mcp@latest
+browser-use-mcp --version
+```
+
+两种方式跑的是同一个服务器：下文任意命令里的 `browser-use-mcp` 都可以换成
+`npx -y @ricardochen1996/browser-use-mcp@latest`。客户端配置用 `npx` 或已安装的命令都可以；
+GUI 客户端的 `PATH` 比较短、找不到它们时，把 `command -v browser-use-mcp` 给出的绝对路径填进去
+（用 `npx` 形式则取 `command -v npx`）；每个客户端的片段见 [docs/clients.md](docs/clients.md)。
 
 然后检查这台机器（新机器上首次浏览器调用会构建环境；`install` 可以提前做）。下面的例子用
 `--mode launch` 看专属浏览器；默认 attach 模式下 `Connection:` 行会写成你所连的 Chrome，且
 `Status: ready` 要求那个浏览器能应答调试端点。输出大致如下，与机器相关的路径做了省略：
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor --mode launch
+browser-use-mcp doctor --mode launch
 ```
 
 ```text
-browser-use-mcp v0.1.0 — self-check (Node v22.23.2, darwin-arm64)
+browser-use-mcp v0.1.2 — self-check (Node v22.23.2, darwin-arm64)
 
 Transport: stdio (MCP over stdin/stdout)
 Connection: launch Chrome/Chromium, profile "default" at /Users/you/.browser-use-mcp/profiles/default
@@ -117,7 +127,7 @@ Engine   : /Users/you/.browser-use-mcp/env/bin/python (Python 3.12.14, chosen by
            jev_ultrafast 0.1.1 at …/env/lib/python3.12/site-packages/jev_ultrafast
            browser-harness 0.1.13
 Install  : none in this process; the engine is already importable
-Sidecar  : /…/browser-use-mcp/sidecar/bridge.py
+Sidecar  : /…/node_modules/@ricardochen1996/browser-use-mcp/sidecar/bridge.py
 Browser  : /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 Goal mode: enabled: browser_goal and browser_act intents spend model quota; …
 Status   : ready
@@ -128,21 +138,30 @@ Status   : ready
 想提前构建环境、而不是等第一次浏览器调用时再装：
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs install
+browser-use-mcp install
+# 或者不装全局命令：
+npx -y @ricardochen1996/browser-use-mcp@latest install
 ```
 
 它会在 `<state root>/env`（默认 `~/.browser-use-mcp/env`）里建好环境，装上随包的引擎 wheel 与 `browser-harness`，并把构建记录写进 `<state root>/install.json`。可以放心重跑。安装在后台进行时，先到的浏览器调用会等它，而不是直接失败。
 
 ### 接到你的 agent 上
 
-下面的绝对路径都来自这份 checkout——换成你自己克隆的位置。
+下面的片段用 `npx` 启动已发布的包，不需要全局安装。如果你装了 `browser-use-mcp` 命令，把
+`npx -y @ricardochen1996/browser-use-mcp@latest` 换成 `browser-use-mcp`（或它的绝对路径）即可。
+每个客户端（包括 launch 模式的变体）的完整配置在 **[docs/clients.md](docs/clients.md)**。
 
 Claude Code：
 
 ```bash
+# 使用你日常的 Chrome（默认 attach 模式）：
 claude mcp add --scope user browser-use \
-  --env BROWSER_USE_MCP_HEADLESS=1 \
-  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+  -- npx -y @ricardochen1996/browser-use-mcp@latest
+
+# 或者给 agent 一个专属的、看不到你日常会话的浏览器：
+claude mcp add --scope user browser-use \
+  --env BROWSER_USE_MCP_MODE=launch --env BROWSER_USE_MCP_HEADLESS=1 \
+  -- npx -y @ricardochen1996/browser-use-mcp@latest
 ```
 
 通用的 `mcpServers` JSON（Claude Desktop、Cursor 以及多数宿主都认这个形状）：
@@ -151,17 +170,35 @@ claude mcp add --scope user browser-use \
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
-      "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
-      "env": { "BROWSER_USE_MCP_HEADLESS": "1" }
+      "command": "npx",
+      "args": ["-y", "@ricardochen1996/browser-use-mcp@latest"],
+      "env": { "BROWSER_USE_MCP_MODE": "launch", "BROWSER_USE_MCP_HEADLESS": "1" }
     }
   }
 }
 ```
 
-Claude Code、Claude Desktop、Cursor、Codex、DSH 以及 Streamable HTTP 的可直接复制片段——包括“换成你自己的绝对路径”这条规则——都在 **[docs/clients.md](docs/clients.md)**。
+`env` 里用 launch 模式是为了让这个例子自成一体；想驱动你日常的 Chrome 就把这段 `env` 去掉。
+客户端也可以直接运行装好的命令（`"command": "browser-use-mcp"`）；如果希望整个团队跑同一个
+版本，就把 `@latest` 换成具体的版本号。GUI 客户端的 `PATH` 比较短时，用命令的绝对路径
+（`command -v browser-use-mcp`；Homebrew 装的 Node 通常是 `/opt/homebrew/bin/browser-use-mcp`）。
 
 然后让 agent 去 `browser_open` 一个 URL。新机器上的第一次调用可能要等一两分钟来装环境，之后的调用立即开始。
+
+### 从源码运行
+
+想跑一个还没发布的提交，或者参与开发：
+
+```bash
+git clone https://github.com/ricardochen1996/browser-use-mcp.git
+cd browser-use-mcp
+npm install
+node bin/browser-use-mcp.mjs doctor --mode launch
+```
+
+在 checkout 里执行 `npm link` 会把一个 `browser-use-mcp` 命令放进 `PATH`，运行的就是这份
+checkout。发布包和 checkout 的文件完全一致，区别只在于 `browser-use-mcp` 来自 npm 还是
+`node bin/browser-use-mcp.mjs`。
 
 ---
 
@@ -193,7 +230,7 @@ Claude Code、Claude Desktop、Cursor、Codex、DSH 以及 Streamable HTTP 的�
 想多个 agent 共用一个装好的服务器时，起一个 HTTP 端点：
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
+browser-use-mcp \
   --transport http --host 127.0.0.1 --port 7331 --path /mcp
 ```
 
@@ -277,12 +314,12 @@ http://127.0.0.1:7331/mcp?profile=claude      （或请求头 X-Browser-Use-Prof
 **先跑 `browser_doctor`。** 工具和 CLI 跑的是同一份自检；每条问题都带着修它的命令。
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor
+browser-use-mcp doctor
 ```
 
 - **profile 已被占用。** 报错会点名 profile 和 `--profile`：停掉另一个服务器，或者给这个服务器一个自己的 `--profile <name>`。两个服务器驱动同一个浏览器 profile，是服务器会主动拒绝的唯一一种配置。
-- **attach 模式找不到浏览器。** 这是默认模式：在你日常的 Chrome 里打开 `chrome://inspect/#remote-debugging` 并允许远程调试，或者用 `--mode launch` 让服务器起一个专属浏览器。doctor 会打印 `attach mode drives …` 和原因。
-- **引擎还没装。** 首次使用会把它装进状态根；想提前装，就在 checkout 里跑 `node bin/browser-use-mcp.mjs install`，或者在 agent 里调 `browser_doctor` 并带上 `install: true`。走代理的话，给运行服务器的进程设 `HTTPS_PROXY`。
+- **attach 模式找不到浏览器。** 这是默认模式：在你日常的 Chrome 里打开 `chrome://inspect/#remote-debugging` 并允许远程调试，修正 `--cdp-endpoint`，或者用 `--mode launch` 让服务器起一个专属浏览器。doctor 会打印 `attach mode drives …` 和原因。macOS 上，给运行服务器的应用完全磁盘访问权限，它才能读到你的 Chrome profile。
+- **引擎还没装。** 首次使用会把它装进状态根；想提前装就运行 `browser-use-mcp install`（或 `npx -y @ricardochen1996/browser-use-mcp@latest install`），或者在 agent 里调 `browser_doctor` 并带上 `install: true`。走代理的话，给运行服务器的进程设 `HTTPS_PROXY`。
 - **`Jev … NOT READY`。** 设 `TYPESAFE_API_KEY`（或用 `--jev-decider chat` 配 `TEXT_MODEL_*`）。浏览器工具不需要它。
 - **客户端里看不到工具。** 客户端的 `env`/`args` 没送到服务器，或者改完没重启。在终端里跑同一条命令看 stderr；配置错误会以退出码 `2` 结束并点名出错的字段。
 - **Chrome 弹 “Allow remote debugging?”。** 有东西起了第二个 CDP 客户端。只批准那一个弹窗一次，绝不重试；程序化的工作改用 `browser_eval`。

@@ -1,6 +1,6 @@
 {
   "name": "@ricardochen1996/browser-use-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "An MCP server that gives any agent a browser it can see and click: the page is read as an indexed action space, and every step is one guarded operation on an observed target.",
   "type": "module",
   "license": "MIT",

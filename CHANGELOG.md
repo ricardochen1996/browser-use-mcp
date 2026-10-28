@@ -7,6 +7,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-28
+
+Documentation only: the server behaves exactly as 0.1.1.
+
+### Fixed
+
+- **The install instructions match the published package.** `README.md`, `README.zh-CN.md` and
+  `docs/clients.md` no longer say the package is unpublished or tell people to run a local
+  checkout. They install `@ricardochen1996/browser-use-mcp` from npm — `npx -y
+  @ricardochen1996/browser-use-mcp@latest`, or `npm install -g` for the `browser-use-mcp` command —
+  and every client snippet (Claude Code, Claude Desktop, Cursor, Codex, DSH, generic `mcpServers`,
+  Streamable HTTP) starts the published release. An absolute path now appears only as the fallback
+  for a GUI client whose `PATH` cannot see `npx`/`browser-use-mcp`.
+- Both READMEs' doctor samples show `v0.1.2` and the installed package's `sidecar/bridge.py` path.
+
 ## [0.1.1] - 2026-10-27
 
 Release tooling and documentation only: the server behaves exactly as 0.1.0.
@@ -164,10 +179,9 @@ These are the pre-release fixes that made the first version safe to publish.
 
 ### Notes
 
-- **Not published to npm yet.** Run it from a checkout: `npm install`, then
-  `node /absolute/path/to/browser-use-mcp/bin/browser-use-mcp.mjs`. There is no `npx` installation
-  to document until a release exists; `npm link` puts a `browser-use-mcp` command on `PATH` for
-  terminal use.
+- **Install:** `npx -y @ricardochen1996/browser-use-mcp@latest` (or
+  `npm install -g @ricardochen1996/browser-use-mcp` for the `browser-use-mcp` command). Running a
+  development checkout is covered in the README's "From source" section.
 - **Requirements:** Node.js `^22.19.0 || >=24.0.0`, Chrome or Chromium, and either a Python 3.12+
   (`python3.12`–`python3.14` or `python3`) or `uv` to build the managed environment.
 - **The Jev key is optional.** Without it, `browser_goal` and `browser_act` intents refuse with one
@@ -180,6 +194,7 @@ These are the pre-release fixes that made the first version safe to publish.
 - `browser-use-mcp` is MIT licensed and bundles or vendors MIT work from `dsh-browser-use`,
   `jev-ultrafast` and `browser-harness`; see [NOTICE](NOTICE).
 
-[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.0

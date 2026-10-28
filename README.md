@@ -118,15 +118,26 @@ needs **Full Disk Access** (System Settings → Privacy & Security → Full Disk
 isolated browser? Pass `--mode launch` and the server starts its own Chrome with a profile under the
 state root instead.
 
-The package is **not published to npm yet** — run it from a checkout:
+**Install.** The package is published on npm as
+[`@ricardochen1996/browser-use-mcp`](https://www.npmjs.com/package/@ricardochen1996/browser-use-mcp).
+Run the latest release without installing anything:
 
 ```bash
-cd /Users/ricardo.chen/PersonalGit/browser-use-mcp
-npm install
+npx -y @ricardochen1996/browser-use-mcp@latest --version
 ```
 
-`npm link` in the checkout additionally puts a `browser-use-mcp` command on your `PATH` for terminal
-use; GUI clients are more reliable with the absolute path shown below.
+or install the `browser-use-mcp` command, which is what the terminals below assume:
+
+```bash
+npm install -g @ricardochen1996/browser-use-mcp@latest
+browser-use-mcp --version
+```
+
+Both forms run the same server: `npx -y @ricardochen1996/browser-use-mcp@latest` can stand in for
+`browser-use-mcp` in every command below. Client configs work with either `npx` or the installed
+command; if a GUI client cannot find them on its short `PATH`, give it the absolute path from
+`command -v browser-use-mcp` (or `command -v npx` for the `npx` form); per-client snippets are in
+[docs/clients.md](docs/clients.md).
 
 Then check the machine (on a fresh machine the first browser call builds the environment;
 `install` does it eagerly). Its output looks like this, with machine-specific paths shortened:
@@ -136,11 +147,11 @@ The example below asks for a dedicated browser (`--mode launch`); with the defau
 browser to answer its debugging endpoint.
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor --mode launch
+browser-use-mcp doctor --mode launch
 ```
 
 ```text
-browser-use-mcp v0.1.0 — self-check (Node v22.23.2, darwin-arm64)
+browser-use-mcp v0.1.2 — self-check (Node v22.23.2, darwin-arm64)
 
 Transport: stdio (MCP over stdin/stdout)
 Connection: launch Chrome/Chromium, profile "default" at /Users/you/.browser-use-mcp/profiles/default
@@ -155,7 +166,7 @@ Engine   : /Users/you/.browser-use-mcp/env/bin/python (Python 3.12.14, chosen by
            jev_ultrafast 0.1.1 at …/env/lib/python3.12/site-packages/jev_ultrafast
            browser-harness 0.1.13
 Install  : none in this process; the engine is already importable
-Sidecar  : /…/browser-use-mcp/sidecar/bridge.py
+Sidecar  : /…/node_modules/@ricardochen1996/browser-use-mcp/sidecar/bridge.py
 Browser  : /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 Goal mode: enabled: browser_goal and browser_act intents spend model quota; …
 Status   : ready
@@ -167,7 +178,9 @@ configured: only `browser_goal` and `browser_act`'s `intent` need one; everythin
 To build the environment ahead of time instead of during the first browser call:
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs install
+browser-use-mcp install
+# or, without a global install:
+npx -y @ricardochen1996/browser-use-mcp@latest install
 ```
 
 That creates `<state root>/env` (default `~/.browser-use-mcp/env`) with the bundled engine wheel and
@@ -176,19 +189,22 @@ A browser tool that runs before the install finished waits for it instead of fai
 
 ### Put it in front of your agent
 
-Every absolute path below is this checkout's — substitute where you cloned it.
+The snippets below start the published package through `npx`, so they need no global install.
+Replace `npx -y @ricardochen1996/browser-use-mcp@latest` with `browser-use-mcp` (or its absolute
+path) if you installed the command. Every client, including launch-mode variants, is wired in
+**[docs/clients.md](docs/clients.md)**.
 
 Claude Code:
 
 ```bash
 # Use the Chrome you already browse with (the default attach mode):
 claude mcp add --scope user browser-use \
-  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+  -- npx -y @ricardochen1996/browser-use-mcp@latest
 
 # Or give the agent a dedicated, unseen browser instead:
 claude mcp add --scope user browser-use \
   --env BROWSER_USE_MCP_MODE=launch --env BROWSER_USE_MCP_HEADLESS=1 \
-  -- node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs
+  -- npx -y @ricardochen1996/browser-use-mcp@latest
 ```
 
 Generic `mcpServers` JSON (Claude Desktop, Cursor, and most hosts accept this shape):
@@ -197,19 +213,37 @@ Generic `mcpServers` JSON (Claude Desktop, Cursor, and most hosts accept this sh
 {
   "mcpServers": {
     "browser-use": {
-      "command": "node",
-      "args": ["/Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs"],
-      "env": { "BROWSER_USE_MCP_HEADLESS": "1" }
+      "command": "npx",
+      "args": ["-y", "@ricardochen1996/browser-use-mcp@latest"],
+      "env": { "BROWSER_USE_MCP_MODE": "launch", "BROWSER_USE_MCP_HEADLESS": "1" }
     }
   }
 }
 ```
 
-Copy-pasteable snippets for Claude Code, Claude Desktop, Cursor, Codex, DSH and Streamable HTTP —
-including the absolute-path substitution rule — are in **[docs/clients.md](docs/clients.md)**.
+The `env` block uses launch mode so the example is self-contained; drop it to drive the Chrome you
+already use. A client can also run the installed command directly (`"command": "browser-use-mcp"`);
+pin a version instead of `@latest` when the whole team should run the same release. A GUI client with
+a short `PATH` needs the command's absolute path (`command -v browser-use-mcp`; for Homebrew Node
+that is usually `/opt/homebrew/bin/browser-use-mcp`).
 
 Then ask the agent to `browser_open` a URL. A first call on a fresh machine may take a minute or two
 while the environment is installed; later calls start at once.
+
+### From source
+
+To run a commit that is not released yet, or to develop:
+
+```bash
+git clone https://github.com/ricardochen1996/browser-use-mcp.git
+cd browser-use-mcp
+npm install
+node bin/browser-use-mcp.mjs doctor --mode launch
+```
+
+`npm link` in the checkout puts a `browser-use-mcp` command on your `PATH` that runs that checkout.
+The published package and a checkout contain the same files; the commands above only differ in
+whether `browser-use-mcp` comes from npm or from `node bin/browser-use-mcp.mjs`.
 
 ---
 
@@ -243,13 +277,13 @@ An agent should report a failure, not retry it blindly.
 Start an HTTP endpoint when several agents should share one installed server:
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs \
+browser-use-mcp \
   --transport http --host 127.0.0.1 --port 7331 --path /mcp
 ```
 
 The endpoint is `http://127.0.0.1:7331/mcp` by default. Each MCP `initialize` session gets its own
 browser session; in the default attach mode all of them drive the Chrome you already use (see
-`--attach-sharing` above), while `--mode launch` gives every session its own tab of a dedicated
+`--attach-sharing` below), while `--mode launch` gives every session its own tab of a dedicated
 browser. A session that goes quiet for 15 minutes has its browser closed and its anonymous profile
 removed (`BROWSER_USE_MCP_HTTP_IDLE_MS` overrides the timeout). There is no authentication: the
 default bind is loopback, and a non-loopback bind logs a warning at startup. Put it behind a tunnel
@@ -368,23 +402,21 @@ sidecar's environment, and the doctor prints `set`/`unset` instead of a value.
 carries the command that fixes it.
 
 ```bash
-node /Users/ricardo.chen/PersonalGit/browser-use-mcp/bin/browser-use-mcp.mjs doctor
+browser-use-mcp doctor
 ```
 
 - **A profile is already in use.** The message names the profile and `--profile`: stop the other
   server, or give this one its own `--profile <name>`. Two servers driving one browser profile is
   the one configuration the server refuses on purpose.
 - **Attach mode cannot find the browser.** This is the default mode: open
-  `chrome://inspect/#remote-debugging` in the Chrome you use and allow remote debugging, or start the
-  server with `--mode launch` for a dedicated browser. The doctor reports `attach mode drives …` with
-  the reason.
-  Start that browser with remote debugging on (`chrome://inspect/#remote-debugging`), correct
-  `--cdp-endpoint`, or use `--mode launch`. On macOS, allowing this app Full Disk Access is what lets
-  it read your Chrome's profile.
+  `chrome://inspect/#remote-debugging` in the Chrome you use and allow remote debugging, correct
+  `--cdp-endpoint`, or start the server with `--mode launch` for a dedicated browser. The doctor
+  reports `attach mode drives …` with the reason. On macOS, allowing this app Full Disk Access is
+  what lets it read your Chrome's profile.
 - **The engine is not installed yet.** The first use installs it into the state root; run
-  `node bin/browser-use-mcp.mjs install` from the checkout to do it eagerly, or `browser_doctor` with
-  `install: true` from the agent. Behind a proxy, set `HTTPS_PROXY` for the process that runs the
-  server.
+  `browser-use-mcp install` (or `npx -y @ricardochen1996/browser-use-mcp@latest install`) to do it
+  eagerly, or `browser_doctor` with `install: true` from the agent. Behind a proxy, set
+  `HTTPS_PROXY` for the process that runs the server.
 - **`Jev … NOT READY`.** Set `TYPESAFE_API_KEY` (or use `--jev-decider chat` with `TEXT_MODEL_*`).
   The browser tools do not need it.
 - **No tools in the client.** The client's `env`/`args` did not reach the server, or it was not
