@@ -9,7 +9,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -304,8 +304,14 @@ test('ensureEngine rebuilds an environment an earlier release built', { timeout:
   assert.ok(installed, 'the installed engine has a dist-info directory')
   const stale = 'jev_ultrafast-0.0.9.dist-info'
   renameSync(join(site, installed), join(site, stale))
+  // Replace the file instead of writing through it: uv hardlinks its cache into site-packages (the
+  // default link mode on Linux), so an in-place write would change the cached wheel's metadata and
+  // the next install would fail with "Wheel version does not match filename". Unlinking first keeps
+  // the write inside this environment.
   const metadata = join(site, stale, 'METADATA')
-  writeFileSync(metadata, readFileSync(metadata, 'utf8').replace(/^Version: .*$/mu, 'Version: 0.0.9'))
+  const tampered = readFileSync(metadata, 'utf8').replace(/^Version: .*$/mu, 'Version: 0.0.9')
+  unlinkSync(metadata)
+  writeFileSync(metadata, tampered)
 
   forgetEngine()
   const outdated = await inspectEngine(config, { fresh: true })

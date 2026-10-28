@@ -402,9 +402,13 @@ describe('daemon identity', () => {
   })
 
   it('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
-    // A label at Browser Harness's 64-character limit already makes the full name too long for
-    // sun_path; the digest has to bring the path back inside the budget, under this runtime directory.
-    const longRuntime = { BH_RUNTIME_DIR: join(tmpdir(), 'bbb'), BH_RUNTIME_DIR_SHARED: '1' }
+    // Build a runtime directory whose path is long enough that the full `<stem>-<instance>` name
+    // cannot fit in sun_path, while the 10-character digest still can — on every platform, because
+    // tmpdir() is /tmp on Linux and much longer on macOS. 54 bytes leaves the digest path inside the
+    // 100-byte budget with room for a 7-digit pid, and the full name always overflows it by then.
+    const runtime = join(tmpdir(), 'b'.repeat(Math.max(1, 54 - tmpdir().length - 1)))
+    assert.equal(runtime.length, 54)
+    const longRuntime = { BH_RUNTIME_DIR: runtime, BH_RUNTIME_DIR_SHARED: '1' }
     const label = 'a'.repeat(64)
     const { name, files } = daemonIdentity(longRuntime, label, 1)
     assert.match(name, /^browser-use-mcp-[0-9a-f]{10}-p\d+$/u)
