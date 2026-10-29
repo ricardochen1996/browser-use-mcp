@@ -351,12 +351,16 @@ npm test            # 快速单元测试（node --test）
 npm run test:e2e  # 真实 headless Chrome 跑真实 MCP 协议
                   # （stdio、HTTP、attach 模式、用回环 stub 验证的 Jev intent、
                   #  以及手写 JSON-RPC 客户端）
+npm run test:e2e:local  # 在本机跑同一套 e2e：自动准备临时状态根和带 --no-sandbox 的 Chrome 包装
+                        # （沙箱里也能跑；`-- http attach` 可只跑指定 suite）
 npm run release:check  # 校验版本、CHANGELOG 与真正会被打包的文件清单
 npm run release:pack   # 构建 tarball、校验内容并把 integrity 记录到 dist/
 npm run doctor      # CLI 自检
 ```
 
-默认测试不花模型调用、不需要任何凭据；e2e 测试首次运行会把引擎装进一个测试用的状态根。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
+默认测试不花模型调用、不需要任何凭据；e2e 测试首次运行会把引擎装进一个测试用的状态根。`npm run test:e2e:local` 会自行设置 `BROWSER_USE_MCP_TEST_HOME`、`BH_RUNTIME_DIR` 和 `BROWSER_USE_MCP_TEST_CHROME`，不需要手动配置，也不会留下浏览器或 daemon。
+
+CI 在每次 push 和 PR 上跑 Node 22.19/24 的单元矩阵和 release gate；真浏览器 e2e 只在 `main` 和发版时跑。e2e suite 因时序失败会自动重试一次（失败先记 annotation），单元测试绝不重试：那属于缺陷而不是 flake。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 **发布**：在 `main` 上打标注 tag `vX.Y.Z`，[release 工作流](.github/workflows/release.yml) 会校验 tag 与 `package.json` 一致、重跑 CI（单元 + 真浏览器 e2e）、带 provenance 发布到 npm，并创建 GitHub Release，附上校验过的 tarball。凭据二选一：仓库 secret `NPM_TOKEN`（automation 或带 publish 权限的 granular token），或在 npm 上把本仓库与 `.github/workflows/release.yml` 配成 **Trusted Publisher**，工作流会用 OIDC 换取短期发布凭据。已发布的版本会被跳过，重跑只刷新 GitHub Release。
 

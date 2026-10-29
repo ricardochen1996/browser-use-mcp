@@ -75,9 +75,18 @@ jobs:
 
   e2e:
     name: Real-browser end-to-end (Chrome + Python 3.12)
+    # Real Chrome and real processes make these suites timing-sensitive, and they are the slowest
+    # part of CI. A pull request gets the unit matrix and the release gate; the end-to-end job runs on
+    # main pushes and for a release (a reusable workflow sees the caller's event: the tag push, or a
+    # manual dispatch naming the tag), where the real browser has to be proven.
+    if: github.event_name == 'push' || github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch'
     needs: unit
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      # One retry per suite: a failed attempt is annotated and retried, and a suite that fails both
+      # times still annotates its failure. Unit tests are never retried.
+      E2E_ATTEMPTS: '2'
     steps:
       - name: Check out
         uses: actions/checkout@v5
@@ -112,7 +121,8 @@ jobs:
 
       # The suites provision their managed engine environment on first use; the state root lives in
       # the runner's temp directory, so nothing outside the job is touched. Each suite is its own step
-      # so a red run names the suite, and the script turns the suite's failure into annotations.
+      # so a red run names the suite; the script retries a timing failure once (E2E_ATTEMPTS) and turns
+      # the failure that remains into annotations.
       - name: End-to-end stdio
         env:
           BROWSER_USE_MCP_TEST_HOME: ${{ runner.temp }}/browser-use-mcp-e2e

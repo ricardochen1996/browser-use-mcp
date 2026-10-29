@@ -467,13 +467,22 @@ npm test            # fast unit tests (node --test)
 npm run test:e2e    # real headless Chrome through the real MCP protocol
                     # (stdio, HTTP, attach mode, Jev intent against a loopback stub,
                     #  and a hand-written JSON-RPC client)
+npm run test:e2e:local  # the same suites on this machine, inside a temporary state root with a
+                        # --no-sandbox Chrome wrapper (works in sandboxes; `-- http attach` picks suites)
 npm run release:check  # manifest + changelog + the exact packed file list
 npm run release:pack   # build the tarball, verify it and record its integrity in dist/
 npm run doctor      # the CLI self-check
 ```
 
 The default suites spend no model calls and need no credentials; the e2e tests install the engine
-into a test state root on their first run. Release history is in [CHANGELOG.md](CHANGELOG.md).
+into a test state root on their first run. `npm run test:e2e:local` supplies its own
+`BROWSER_USE_MCP_TEST_HOME`, `BH_RUNTIME_DIR` and `BROWSER_USE_MCP_TEST_CHROME`, so it needs no
+environment setup and leaves no browser or daemon behind.
+
+CI runs the unit matrix on Node 22.19 and 24 plus the release gate for every push and pull request;
+the real-browser e2e job runs on `main` and for a release. Each e2e suite is retried once when it
+fails on timing (the failure is annotated first), while a unit test is never retried: that is a
+defect, not a flake. Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 **Releases** are tagged `vX.Y.Z` on `main`; the [release workflow](.github/workflows/release.yml)
 validates the annotated tag against `package.json`, reruns CI (unit plus real-browser e2e), publishes

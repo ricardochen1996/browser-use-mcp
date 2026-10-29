@@ -32,6 +32,7 @@ sidecar/bridge.py         VENDORED from dsh-browser-use; do not edit
 vendor/                   bundled engine wheel + hash-pinned requirements
 test/unit/*.test.mjs      fast unit tests (node --test)
 test/e2e/*.mjs            real headless Chrome through the real MCP protocol
+scripts/e2e-local.sh      runs those suites on a developer machine (temp state root + Chrome wrapper)
 ```
 
 ## The sidecar protocol (host side)
@@ -199,8 +200,11 @@ concurrent editors see each other's changes. `sidecar/bridge.py` is vendored: ne
   section. `npm run release:check` refuses a release when the two disagree, when the packed file
   list is missing something (`lib/`, `sidecar/bridge.py`, the bundled wheel, docs, license), when
   the wheel does not match `vendor/jev-ultrafast.json`, or when the package would contain tests.
-- `.github/workflows/ci.yml` runs the unit suite on Node 22.19 and 24, the release gate, and a
-  real-browser e2e job on Ubuntu (Chrome + managed Python 3.12). Pull requests and `main` use it.
+- `.github/workflows/ci.yml` runs the unit suite on Node 22.19 and 24 and the release gate for every
+  push and pull request; the real-browser e2e job on Ubuntu (Chrome + managed Python 3.12) runs on
+  `main` pushes and for a release, and each e2e suite is retried once on failure (`E2E_ATTEMPTS`) —
+  the unit matrix is never retried. `scripts/e2e-local.sh` (`npm run test:e2e:local`) runs the same
+  suites on a developer machine with a temporary state root and a `--no-sandbox` Chrome wrapper.
 - `.github/workflows/release.yml` runs on an annotated `vX.Y.Z` tag **on main** (or a manual dispatch
   that names one): it validates tag/version/annotated/on-main (fetching tag objects explicitly, since
   checkout may leave a lightweight ref), calls `ci.yml`, then publishes to npm with provenance and
