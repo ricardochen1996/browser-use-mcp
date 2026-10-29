@@ -7,6 +7,45 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-29
+
+### Fixed
+
+- **`browser_console` reports the failed/4xx requests of a page's own load.** The previous release
+  enabled `Runtime` and `Network` only after the engine had navigated and settled. Chrome replays
+  `Runtime` console messages and exceptions on enable, but it does not replay `Network` events, so
+  the load's failed requests were still missing. The vendored sidecar now enables both domains the
+  moment a tab is attached — before the engine navigates it — so a page's load is reported in full,
+  and a tab a click opens is watched from its first byte. `Session._watch_diagnostics()` stays as
+  the safety net for any session created another way.
+- **A server killed with `SIGKILL` no longer leaks its Browser Harness daemon.** The daemon is
+  deliberately detached, and the per-process daemon name means no later process can adopt one left
+  by a killed server: it would hold a CDP connection forever, one leaked connection per hard kill.
+  Every server start now reaps daemons whose owning process is gone (macOS and Linux, where the
+  daemon IPC is a Unix socket; on Windows the daemon speaks TCP and reaping is left out). A daemon is
+  signalled only after its own socket answers a ping with the pid it published, so a recycled pid can
+  never turn cleanup into killing an unrelated process; a daemon whose owner is alive is never
+  touched. The sidecar also shuts its own browser and daemon down when its host disappears without
+  asking (end of input), so a SIGKILLed launch-mode server no longer leaks the Chrome it launched
+  either.
+- **The socket-path budget is now spent on the directory the engine actually binds.** Browser
+  Harness resolves symlinks before it opens its socket, so a runtime directory reached through a
+  link — `/tmp` on macOS is `/private/tmp` — was budgeted on the shorter spelling and could pass a
+  path the engine then rejected with `fatal: AF_UNIX path too long`. The host resolves the deepest
+  existing part of the path first, so a name is chosen (digest fallback included) against the same
+  path the engine will use, and a genuinely too-long runtime directory gets the actionable
+  `BH_RUNTIME_DIR` message instead of the engine's opaque fatal.
+
+### Changed
+
+- **A configured `--python` that runs an older engine now says so in `browser_open`.** The managed
+  environment is still rebuilt automatically when its engine is not the one this package ships, but
+  a caller-owned interpreter is only probed. Its warning, with the `uv pip install` fix, is now
+  included in the note of a session's first `browser_open`, not only in `browser_doctor`.
+- The vendored `sidecar/bridge.py` patch enables diagnostics at attach time; `NOTICE` records the
+  new SHA-256 and `patches/README.md` describes the change. No engine or wheel change: the bundle
+  is still `jev_ultrafast` 0.1.2.
+
 ## [0.1.3] - 2026-10-28
 
 ### Fixed
@@ -233,7 +272,8 @@ These are the pre-release fixes that made the first version safe to publish.
 - `browser-use-mcp` is MIT licensed and bundles or vendors MIT work from `dsh-browser-use`,
   `jev-ultrafast` and `browser-harness`; see [NOTICE](NOTICE).
 
-[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.1

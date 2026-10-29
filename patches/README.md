@@ -54,17 +54,20 @@ loop below the navigation is what actually bounds the page load.
 `browser_console` (`diagnostics`) was always empty. `console_events()` filters the daemon's event
 buffer by the CDP session the *engine* drives, but Browser Harness only enabled `Runtime` and
 `Network` on the session it attached to when the daemon started, so the run's own tab session
-emitted no console entries or failed-request events. The patch adds `Session._watch_diagnostics()`,
-which enables both domains on the current engine session once per session; it runs right after the
-browser is created in `open()`, again after `observe()`/`act()` (the engine switches session when it
-follows a tab a click opened), and as a safety net in `diagnostics()`. It is best effort: a domain
-that cannot be enabled never fails the browser call it belongs to.
+emitted no console entries or failed-request events. The patch adds a
+`DiagnosticsBrowser(EngineBrowser)` whose `attach()` enables both domains immediately after the
+engine attaches a tab — before the engine navigates it — and makes it `Session`'s default
+`open_browser`. Because `follow_opened_tab` goes through the same `attach()`, a tab a click opens
+is watched the moment it is attached. That is what makes the page's own load visible: Chrome
+replays `Runtime` console messages and `exceptionThrown` when the domain is enabled, but it does
+not replay `Network` events, so a request that failed while the page loaded is only in the buffer
+when the domain was already on. Load-time console output, exceptions and failed/4xx requests are
+therefore all reported, along with anything the page does afterwards.
 
-The enable happens after the engine has loaded the page, which bounds what the report can carry:
-Chrome replays `Runtime` console messages and `exceptionThrown` on `Runtime.enable`, so load-time
-console output and uncaught exceptions are included, but it does not replay `Network` events, so
-request failures from the initial page load are not. Failures of requests the page makes after the
-run's session starts (and any request an action triggers) are reported.
+`Session._watch_diagnostics()` stays as the safety net for a session the engine creates another
+way — a caller's own `open_browser`, or a session switched without an attach this sidecar
+observed — and runs in `open()`, after `observe()`/`act()`, and in `diagnostics()`. It is best
+effort: a domain that cannot be enabled never fails the browser call it belongs to.
 
 The same patch turns a vanished daemon into an actionable refusal. When a request raises
 `FileNotFoundError`/`ConnectionRefusedError` and `_ipc.ping(helpers.NAME)` shows the daemon is gone,
@@ -72,3 +75,11 @@ The same patch turns a vanished daemon into an actionable refusal. When a reques
 instead of returning `browser_error` with a raw Python traceback line. This is what a stdio server
 saw after another server process sharing its daemon exited; the host side additionally gives each
 server process its own daemon name (see `lib/sidecar.js`).
+
+Finally, the end of `serve()` now shuts the sidecar down instead of only closing its tab. A host
+that dies without sending a shutdown request — a SIGKILLed MCP server — leaves this child nothing
+but end-of-input, and the browser a launch-mode sidecar started is its own child: nobody else can
+stop it, and a daemon nobody can reach must not keep it alive. The tail calls
+`session.shutdown({})` (falling back to `session.close({})` if that raises), so a hard-killed
+launch-mode server cannot leak the Chrome it launched. An explicit shutdown request followed by
+end-of-input simply shuts down twice, which is harmless.

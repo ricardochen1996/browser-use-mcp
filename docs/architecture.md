@@ -119,7 +119,13 @@ and Chrome asks "Allow remote debugging?" once per connection, so N live session
 `<state root>/attachments/` and refuses the second live holder with a fix. A daemon name carries the
 server process's token (`-p<pid>`) as well as the session label, so two server processes configured
 with the same profile never share a daemon — one process's shutdown cannot stop the browser under
-the other.
+the other. Because the daemon is detached and named per process, a server killed with `SIGKILL`
+cannot stop it: every server start reaps daemons whose owning process is gone (macOS and Linux;
+Windows daemons speak TCP, so the sweep is skipped there), after the daemon's own socket confirms the
+pid it published, and never touches a daemon whose owner is alive. The
+socket-path budget is spent on the resolved spelling of the runtime directory (the engine resolves
+symlinks before it binds), so a directory reached through a link is judged by the path the engine
+will actually use.
 
 **Launch mode** gives every session a browser this server owns. Two servers configured with the
 **same profile** are refused rather than silently sharing a browser: the first holds a lock file in
@@ -207,7 +213,9 @@ server's environment or the sidecar's, so a stale key cannot leak into an unrela
 Reused from `dsh-browser-use` (MIT, see [NOTICE](../NOTICE)):
 
 - `sidecar/bridge.py`, the line-delimited JSON sidecar — behaviour unchanged, apart from the local
-  diagnostics/daemon-loss patch under `patches/`.
+  diagnostics/daemon-loss patch under `patches/`. The patch enables console and network events when
+  a tab is attached, before the engine navigates it, so `browser_console` also reports the page's
+  load-time console output, exceptions and failed/4xx requests.
 - The engine (`jev_ultrafast`) and its `browser-harness` connection layer, as the bundled wheel.
 - The action-space rendering, the freshness rule, the "one connection" rule, the exact operation set,
   and the direct-mode tool descriptions.

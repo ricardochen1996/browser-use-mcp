@@ -11,12 +11,14 @@ action space, and executes one guarded operation at a time.
 - Upstream: [`dsh-browser-use`](https://github.com/ricardochen1996/dsh-browser-use) v0.8.2,
   `sidecar/bridge.py`
 - Upstream revision: `dfe8bfc5221cb6573c1a29bb258059f9a430cd0d`
-- SHA-256 of the vendored file: `cc58032158c04a75cb88f764a4ca9de62e9b20f62b940aeece5fd90e08b6775f`
+- SHA-256 of the vendored file: `7a405211b17c774f939823e6f02fcb8cb5d3847b09f9ea3634928731cad3272f`
 - Changes: the module docstring names this project as its host; plus the local patch in
-  `patches/dsh-browser-use-diagnostics-and-daemon-loss.patch` — `Runtime.enable` and
-  `Network.enable` are issued on the CDP session the run drives (so `browser_console` is no
-  longer empty), and a vanished Browser Harness daemon is answered with `lost_session`
-  instead of a raw `OSError`. Behaviour is otherwise unchanged.
+  `patches/dsh-browser-use-diagnostics-and-daemon-loss.patch` — the browser enables `Runtime.enable`
+  and `Network.enable` when a tab is attached, before a page loads, so `browser_console` reports the
+  page's console output, exceptions and failed/4xx requests including those of its own load; a
+  vanished Browser Harness daemon is answered with `lost_session` instead of a raw `OSError`; and
+  end-of-input (a host that died without sending shutdown) stops the sidecar's own browser and daemon,
+  so a SIGKILLed server cannot leak the Chrome it launched. Behaviour is otherwise unchanged.
 
 ## `vendor/jev_ultrafast-0.1.2-py3-none-any.whl`
 

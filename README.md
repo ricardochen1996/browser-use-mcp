@@ -151,7 +151,7 @@ browser-use-mcp doctor --mode launch
 ```
 
 ```text
-browser-use-mcp v0.1.3 — self-check (Node v22.23.2, darwin-arm64)
+browser-use-mcp v0.1.4 — self-check (Node v22.23.2, darwin-arm64)
 
 Transport: stdio (MCP over stdin/stdout)
 Connection: launch Chrome/Chromium, profile "default" at /Users/you/.browser-use-mcp/profiles/default

@@ -4,9 +4,11 @@ Vendored from `dsh-browser-use` v0.8.2 (`sidecar/bridge.py`, MIT License, see ..
 in turn speaks to a Node host over stdin/stdout. Here the host is `browser-use-mcp`: its MCP
 server starts this file as a child process exactly as that plugin does. This copy also carries the
 local patch in `patches/dsh-browser-use-diagnostics-and-daemon-loss.patch`: console/network
-diagnostics are enabled on the run's own CDP session, and a vanished daemon is reported as
-`lost_session` instead of a raw `OSError`. Everything else is upstream. The browser engine
-(`jev_ultrafast`) is still imported as a library:
+diagnostics are enabled on the run's own CDP session before a page loads, so the page's own load is
+reported too; a vanished daemon is reported as `lost_session` instead of a raw `OSError`; and
+end-of-input (a host that died without asking for shutdown) shuts this sidecar's browser and daemon
+down, so a hard-killed server cannot leak the Chrome it launched. Everything else is upstream. The
+browser engine (`jev_ultrafast`) is still imported as a library:
 
     {"id": 1, "method": "open", "params": {"url": "https://example.com"}}
     {"id": 1, "result": {"page": {...}}}
@@ -71,7 +73,8 @@ os.environ.setdefault("BU_NAME", f"jev-sidecar-{os.getpid()}")
 from browser_harness import _ipc, admin, helpers  # noqa: E402
 from browser_harness.admin import restart_daemon  # noqa: E402
 from browser_harness.helpers import drain_events  # noqa: E402
-from jev_ultrafast.browser import Browser, LostSession, StalePage  # noqa: E402
+from jev_ultrafast.browser import Browser as EngineBrowser  # noqa: E402
+from jev_ultrafast.browser import LostSession, StalePage
 from jev_ultrafast.model import NoTextValue, action_space, choose, field_context, field_text  # noqa: E402
 
 PROTOCOL = 1
@@ -628,10 +631,45 @@ def exception_text(details):
     return stdio_safe(text[:EVAL_EXCEPTION_TEXT])
 
 
+def enable_diagnostics(browser):
+    """Ask one engine browser's session for console and network events, once per session.
+
+    The daemon's event buffer only holds domains a session has enabled, and enabling them late
+    misses what the page has already done: Chrome replays Runtime console messages when the domain
+    is enabled, but it does not replay Network events, so a request that failed while a page loaded
+    is only in the buffer if the domain was on before the load. `DiagnosticsBrowser.attach` calls
+    this right after the tab is attached, which is before the engine navigates it; the sidecar also
+    re-checks it after every observation for a session the engine switched to another way. Best
+    effort on purpose: diagnostics are a side channel, so a domain that cannot be enabled must never
+    fail a page call.
+    """
+    if browser is None or browser.session == getattr(browser, "_diagnostics_session", None):
+        return
+    browser._diagnostics_session = browser.session
+    for domain in ("Runtime", "Network"):
+        try:
+            browser.call(f"{domain}.enable")
+        except Exception:
+            pass  # best effort: the page call this belongs to goes on without diagnostics
+
+
+class DiagnosticsBrowser(EngineBrowser):
+    """The engine's browser, with the diagnostics domains on from the moment a tab is attached.
+
+    The engine attaches to its tab before it navigates it, and attaches again when a click opens a
+    tab (`follow_opened_tab`), so enabling here covers the whole life of every page this sidecar
+    reports on -- including the console output and failed requests of the load itself.
+    """
+
+    def attach(self, target):
+        super().attach(target)
+        enable_diagnostics(self)
+
+
 class Session:
     """One owned browser tab and the observation a caller's next action must refer to."""
 
-    def __init__(self, open_browser=Browser, launch=launch_browser):
+    def __init__(self, open_browser=DiagnosticsBrowser, launch=launch_browser):
         self.browser = None
         self.page = None
         # What ran on this tab, in the engine's history shape: Jev reads it to avoid repeating a no-op.
@@ -639,28 +677,16 @@ class Session:
         self.owned_browser = None
         self._open_browser = open_browser
         self._launch = launch
-        # The CDP session `_watch_diagnostics` enabled console and network events on, or None. The
-        # engine attaches to a new tab when a click opens one, so this is compared again after every
-        # observation rather than set once per sidecar.
-        self._diagnostics_session = None
 
     def _watch_diagnostics(self):
-        """Enable Runtime and Network on the CDP session this run drives, once per session.
+        """Safety net: enable the domains on the session this sidecar drives, once per session.
 
-        The daemon's event buffer only holds domains a session has enabled: Browser Harness enables
-        them on the session it attached to when it started, but this run drives a tab session of its
-        own, so without this the buffer carries no console entry and no failed request for the page
-        `diagnostics` reports. Best effort on purpose -- diagnostics are a side channel, so a domain
-        that cannot be enabled must never fail the browser call that asked for it.
+        `DiagnosticsBrowser` does this at attach time, before a page loads, which is what makes
+        load-time failed requests visible. This covers a browser object that is not one of those --
+        a caller's own `open_browser`, or a session the engine switched to without an attach this
+        sidecar saw -- and is cheap once the session is already watched.
         """
-        if self.browser is None or self.browser.session == self._diagnostics_session:
-            return
-        self._diagnostics_session = self.browser.session
-        for domain in ("Runtime", "Network"):
-            try:
-                self.browser.call(f"{domain}.enable")
-            except Exception:
-                pass  # best effort: the page call this belongs to goes on without diagnostics
+        enable_diagnostics(self.browser)
 
     def _connect(self, params):
         """Point Browser Harness at a browser before anything connects to one."""
@@ -708,8 +734,9 @@ class Session:
         self.close()
         self._connect(params)
         self.browser = self._open_browser(url, reuse=bool(params.get("reuse")))
-        # Before the first observation: a page starts logging the moment it loads, and the buffer the
-        # first `diagnostics` call drains has to have been listening on this run's own session.
+        # `DiagnosticsBrowser` enabled the domains at attach time, before the engine navigated. This
+        # is the safety net for a browser object that is not one of those: the first page load is
+        # exactly the console output and failed requests `diagnostics` is asked about first.
         self._watch_diagnostics()
         try:
             self.page = self.browser.observe(screenshot=False)
@@ -723,8 +750,8 @@ class Session:
         if self.browser is None:
             raise BridgeError("no_session", "Open a page first.")
         self.page = self.browser.observe(screenshot=False)
-        # Following a link that opens a tab moves the engine onto a new CDP session, and that is the
-        # session the next `diagnostics` call filters by.
+        # The browser's own `attach` covers the tab a click opened; this covers a session that
+        # changed without one, so `diagnostics` still reads the session the page is in.
         self._watch_diagnostics()
         return {"page": observation(self.page)}
 
@@ -808,8 +835,8 @@ class Session:
         self.browser.settle(action["kind"])
         before = self.page["fingerprint"]
         self.page = self.browser.observe(screenshot=False)
-        # A click may have followed the engine into a tab it opened, so the diagnostics session is
-        # re-checked here too: the new tab's console is the one a caller will ask about.
+        # A click may have followed the engine into a tab it opened: that tab's `attach` enabled the
+        # domains already, and this is the check for any session that arrived another way.
         self._watch_diagnostics()
         self.history = [*self.history, {
             "action": action["label"], "kind": action["kind"], "text": text, "operation": operation,
@@ -931,14 +958,11 @@ class Session:
                 pass  # a lost tab or session is already closed as far as this sidecar is concerned
         self.browser, self.page = None, None
         self.history = []
-        self._diagnostics_session = None
         return {"closed": True}
 
     def shutdown(self, params):
         """Release the tab, close the owned browser, and stop the daemon that owned the connection."""
         self.close({})
-        # The session that was watched is gone with the tab; a browser that opens later is a new one.
-        self._diagnostics_session = None
         if self.owned_browser is not None:
             # Wait for the process to leave before anything launches on this profile again.
             self.owned_browser.terminate()
@@ -1022,7 +1046,13 @@ def serve(instream=None, outstream=None):
             write({"id": request.get("id"), "error": response})
         if response.get("shutdown"):
             break
-    session.close({})
+    # A host can die without a shutdown request (SIGKILL), leaving this child only end-of-input.
+    # The browser this sidecar launched is its own child: nobody else can stop it, and a daemon
+    # nobody can reach must not keep it alive. Closing just the tab would leak both.
+    try:
+        session.shutdown({})
+    except Exception:
+        session.close({})
 
 
 def main():

@@ -4,17 +4,38 @@
  */
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { resolveConfig } from '../../lib/config.js'
 import { BrowserSession, FileLock, SessionBusy, SessionRefusal } from '../../lib/session.js'
-import { daemonIdentity, daemonName } from '../../lib/sidecar.js'
+import { daemonIdentity, daemonName, reapOrphanDaemons } from '../../lib/sidecar.js'
 
 const HOME = mkdtempSync(join(tmpdir(), 'browser-use-mcp-session-'))
 after(() => rmSync(HOME, { recursive: true, force: true }))
+
+// Socket-budget fixtures live under /tmp because their *canonical* path is what the engine binds:
+// on macOS that is /private/tmp, short enough to test both a fitting name and the digest fallback,
+// while tmpdir() itself resolves to a long /private/var/... path. Every root is removed afterwards.
+const tmpRoots = []
+after(() => {
+  for (const root of tmpRoots) rmSync(root, { recursive: true, force: true })
+})
+function tmpRoot(prefix = 'bu-rt-') {
+  const root = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', prefix))
+  tmpRoots.push(root)
+  return root
+}
+/** A runtime directory whose symlink-resolved (what the engine binds) path is `length` bytes. */
+function runtimePath(length) {
+  const root = tmpRoot()
+  const canonicalRoot = realpathSync(root)
+  return join(root, 'x'.repeat(Math.max(1, length - canonicalRoot.length - 1)))
+}
 
 /** One page object, in the sidecar's observation shape. */
 function page(fingerprint, extra = {}) {
@@ -31,6 +52,7 @@ class FakeSidecar {
     this.readyCalls = 0
     this.stopped = []
     this.readyError = undefined
+    this.warnings = []
   }
 
   async ready() {
@@ -128,6 +150,43 @@ describe('open', () => {
     mkdirSync(config.userDataDir, { recursive: true })
     writeFileSync(join(config.userDataDir, '.browser-use-mcp.lock'), 'not json')
     await session.open('https://example.test/')
+    await session.shutdown()
+  })
+
+  it('says once that a configured interpreter runs an engine this package does not ship', async () => {
+    const { session, fake } = sessionFor({ handlers: { open: () => ({ page: page('one') }) } })
+    fake.warnings = [{
+      code: 'engine_outdated',
+      message: 'the browser engine in use is jev_ultrafast 0.1.1, and this package ships 0.1.2',
+      fix: 'install the bundled engine into that interpreter: uv pip install --python /tmp/py /pkg/engine.whl',
+    }]
+    const first = await session.open('https://example.test/')
+    assert.match(first.note, /the browser engine in use is jev_ultrafast 0\.1\.1/u)
+    assert.match(first.note, /fix: install the bundled engine/u)
+    const second = await session.open('https://example.test/')
+    assert.equal(second.note, '', 'the warning is said once per session')
+    await session.shutdown()
+  })
+
+  it('keeps the engine warning when the first open fails', async () => {
+    let attempts = 0
+    const { session, fake } = sessionFor({
+      handlers: {
+        open: () => {
+          attempts += 1
+          if (attempts === 1) throw new Error('the browser could not be started')
+          return { page: page('one') }
+        },
+      },
+    })
+    fake.warnings = [{
+      code: 'engine_outdated',
+      message: 'the browser engine in use is jev_ultrafast 0.1.1, and this package ships 0.1.2',
+      fix: 'install the bundled engine into that interpreter',
+    }]
+    await assert.rejects(() => session.open('https://example.test/'), /could not be started/u)
+    const second = await session.open('https://example.test/')
+    assert.match(second.note, /the browser engine in use is jev_ultrafast 0\.1\.1/u, 'a failed open must not consume the one warning')
     await session.shutdown()
   })
 
@@ -372,28 +431,32 @@ describe('attach sharing', () => {
 })
 
 describe('daemon identity', () => {
-  // A short caller-supplied runtime directory; the shared switch keeps the daemon name in the file
-  // stem, which is what the real server always sets (it starts several sidecars on one directory).
-  // Short enough that the full `<stem>-<instance><generation>` name fits inside sun_path here.
-  const shortEnv = { BH_RUNTIME_DIR: join(tmpdir(), 'bu-rt'), BH_RUNTIME_DIR_SHARED: '1' }
+  // A caller-supplied runtime directory whose canonical path is 50 bytes: short enough for the
+  // default profile's full name, long enough that a 64-character label must fall back to the digest.
+  // The shared switch keeps the daemon name in the file stem, which is what the server always sets.
+  function shortEnv() {
+    return { BH_RUNTIME_DIR: runtimePath(50), BH_RUNTIME_DIR_SHARED: '1' }
+  }
+  // Symlink-dependent fixtures and the AF_UNIX budget are POSIX-only.
+  const itPosix = process.platform === 'win32' ? it.skip : it
 
-  it('names the daemon after the session and the server process when the socket path fits', () => {
-    const { name, files } = daemonIdentity(shortEnv, 'default', 1)
+  itPosix('names the daemon after the session and the server process when the socket path fits', () => {
+    const { name, files } = daemonIdentity(shortEnv(), 'default', 1)
     assert.equal(name, `browser-use-mcp-default-p${process.pid}`)
     assert.ok(files.sockPath.length <= 100, files.sockPath)
   })
 
-  it('keeps two server processes and two generations apart', () => {
-    const first = daemonIdentity(shortEnv, 'default', 1, 'p100')
-    const second = daemonIdentity(shortEnv, 'default', 1, 'p200')
+  itPosix('keeps two server processes and two generations apart', () => {
+    const first = daemonIdentity(shortEnv(), 'default', 1, 'p100')
+    const second = daemonIdentity(shortEnv(), 'default', 1, 'p200')
     assert.equal(first.name, 'browser-use-mcp-default-p100')
     assert.notEqual(first.name, second.name, 'two server processes never own one daemon')
-    assert.equal(daemonIdentity(shortEnv, 'default', 1, 'p100').name, first.name, 'the name is stable for one process')
-    assert.equal(daemonIdentity(shortEnv, 'default', 2, 'p100').name, 'browser-use-mcp-default-p100-g2')
-    assert.notEqual(daemonIdentity(shortEnv, 'default', 2, 'p100').name, first.name, 'a generation is a different daemon')
+    assert.equal(daemonIdentity(shortEnv(), 'default', 1, 'p100').name, first.name, 'the name is stable for one process')
+    assert.equal(daemonIdentity(shortEnv(), 'default', 2, 'p100').name, 'browser-use-mcp-default-p100-g2')
+    assert.notEqual(daemonIdentity(shortEnv(), 'default', 2, 'p100').name, first.name, 'a generation is a different daemon')
   })
 
-  it('keeps every daemon name inside Browser Harness’s own 64-character limit', () => {
+  it('keeps every daemon name inside Browser Harness\u2019s own 64-character limit', () => {
     // The label is already at Browser Harness's limit; the instance and generation tokens have to fit
     // inside it, not push the name past it, or the daemon cannot start at all.
     const name = daemonName('a'.repeat(64), 1_000)
@@ -401,14 +464,33 @@ describe('daemon identity', () => {
     assert.match(name, /^browser-use-mcp-a+-p\d+-g1000$/u)
   })
 
-  it('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
-    // Build a runtime directory whose path is long enough that the full `<stem>-<instance>` name
-    // cannot fit in sun_path, while the 10-character digest still can — on every platform, because
-    // tmpdir() is /tmp on Linux and much longer on macOS. 54 bytes leaves the digest path inside the
-    // 100-byte budget with room for a 7-digit pid, and the full name always overflows it by then.
-    const runtime = join(tmpdir(), 'b'.repeat(Math.max(1, 54 - tmpdir().length - 1)))
-    assert.equal(runtime.length, 54)
-    const longRuntime = { BH_RUNTIME_DIR: runtime, BH_RUNTIME_DIR_SHARED: '1' }
+  itPosix('resolves the runtime directory through symlinks, the way the engine will', () => {
+    // Browser Harness resolves the runtime directory before binding its socket, so /tmp on macOS is
+    // /private/tmp there. The budget has to be spent on the same spelling, or it passes a path the
+    // engine rejects with its opaque AF_UNIX error.
+    const root = tmpRoot('bu-sym-')
+    const target = join(root, 'real-runtime')
+    mkdirSync(target, { recursive: true })
+    const link = join(root, 'runtime-link')
+    symlinkSync(target, link, 'dir')
+    const direct = daemonIdentity({ BH_RUNTIME_DIR: target, BH_RUNTIME_DIR_SHARED: '1' }, 'default', 1)
+    const viaLink = daemonIdentity({ BH_RUNTIME_DIR: link, BH_RUNTIME_DIR_SHARED: '1' }, 'default', 1)
+    assert.equal(viaLink.name, direct.name)
+    assert.equal(viaLink.files.sockPath, direct.files.sockPath)
+    assert.ok(viaLink.files.sockPath.startsWith(realpathSync(target)), viaLink.files.sockPath)
+    // A path whose real spelling cannot fit is reported with the variable that fixes it, not
+    // accepted on the shorter spelling and then refused by the engine.
+    const tooLong = join(link, 'x'.repeat(120))
+    assert.throws(
+      () => daemonIdentity({ BH_RUNTIME_DIR: tooLong, BH_RUNTIME_DIR_SHARED: '1' }, 'default', 1),
+      /BH_RUNTIME_DIR/u,
+    )
+  })
+
+  itPosix('falls back to a stable short digest instead of an AF_UNIX path that is too long', () => {
+    // A 64-character label makes the full `<stem>-<instance>` name overflow sun_path even from this
+    // 50-byte runtime directory, while the 10-character digest still fits.
+    const longRuntime = { BH_RUNTIME_DIR: runtimePath(50), BH_RUNTIME_DIR_SHARED: '1' }
     const label = 'a'.repeat(64)
     const { name, files } = daemonIdentity(longRuntime, label, 1)
     assert.match(name, /^browser-use-mcp-[0-9a-f]{10}-p\d+$/u)
@@ -421,9 +503,69 @@ describe('daemon identity', () => {
     assert.notEqual(daemonIdentity(longRuntime, label, 1, 'p999').name, name)
   })
 
-  it('refuses a runtime directory so long that no daemon name can fit, and names the fix', () => {
-    const deep = { BH_RUNTIME_DIR: join(tmpdir(), 'x'.repeat(120)), BH_RUNTIME_DIR_SHARED: '1' }
+  itPosix('refuses a runtime directory so long that no daemon name can fit, and names the fix', () => {
+    const deep = { BH_RUNTIME_DIR: runtimePath(140), BH_RUNTIME_DIR_SHARED: '1' }
     assert.throws(() => daemonIdentity(deep, 'default', 1), /BH_RUNTIME_DIR/u)
+  })
+})
+
+describe('orphan daemons', () => {
+  /** One runtime directory of this test, with a daemon's four files in it. */
+  function runtimeWith(name) {
+    const runtime = join(HOME, name)
+    mkdirSync(runtime, { recursive: true })
+    return runtime
+  }
+
+  function writeDaemon(runtime, base, daemonPid) {
+    writeFileSync(join(runtime, `${base}.pid`), `${daemonPid}\n`)
+    writeFileSync(join(runtime, `${base}.sock`), '')
+    writeFileSync(join(runtime, `${base}.port`), '')
+    writeFileSync(join(runtime, `${base}.spawnlock`), '1')
+  }
+
+  it('removes daemons whose server process is gone, and only those', async () => {
+    const runtime = runtimeWith('reap-runtime')
+    const env = { BH_RUNTIME_DIR: runtime, BH_RUNTIME_DIR_SHARED: '1' }
+    // A daemon an earlier server started and never stopped: its owner pid is dead, and the daemon
+    // pid it published is dead too (it exited when its process group went away).
+    writeDaemon(runtime, 'bu-browser-use-mcp-old-p999999', 999998)
+    // A live server owns this one (this test process is the owner); generation suffix included.
+    const live = `bu-browser-use-mcp-live-p${process.pid}-g2`
+    writeDaemon(runtime, live, 999_997)
+    // Files shaped like ours but without the owner token, and another tool's daemon, are not touched.
+    writeFileSync(join(runtime, 'bu-browser-use-mcp-digest-p999996.sock'), '')
+    writeFileSync(join(runtime, 'bu-default.pid'), '999995\n')
+    writeFileSync(join(runtime, 'bu-browser-use-mcp-no-owner.sock'), '')
+
+    const stopped = await reapOrphanDaemons(env)
+    assert.deepEqual(stopped, [], 'nothing had a live daemon to signal')
+    const left = readdirSync(runtime).sort()
+    assert.deepEqual(left, [
+      `${live}.pid`, `${live}.port`, `${live}.sock`, `${live}.spawnlock`,
+      'bu-browser-use-mcp-no-owner.sock',
+      'bu-default.pid',
+    ].sort())
+    assert.ok(!existsSync(join(runtime, 'bu-browser-use-mcp-old-p999999.pid')), 'the dead server\u2019s daemon files are gone')
+    assert.ok(!existsSync(join(runtime, 'bu-browser-use-mcp-digest-p999996.sock')), 'a digest-named orphan is reaped too')
+  })
+
+  it('keeps a daemon whose published pid it cannot verify on the socket', async () => {
+    // The owner server is gone, but something alive publishes itself as the daemon pid (a recycled
+    // pid, or a daemon whose socket is gone). Nothing listens on the socket, so it must not be
+    // signalled, and its files are left for a later, verifiable attempt.
+    const runtime = runtimeWith('reap-unverified')
+    const env = { BH_RUNTIME_DIR: runtime, BH_RUNTIME_DIR_SHARED: '1' }
+    const base = 'bu-browser-use-mcp-unverified-p999994'
+    writeDaemon(runtime, base, process.pid) // alive, but no socket behind it
+    const stopped = await reapOrphanDaemons(env)
+    assert.deepEqual(stopped, [])
+    assert.ok(existsSync(join(runtime, `${base}.pid`)), 'an unverifiable daemon is left for a later attempt')
+  })
+
+  it('has nothing to do before the engine has created its runtime directory', async () => {
+    const env = { BH_RUNTIME_DIR: join(HOME, 'reap-missing', 'runtime'), BH_RUNTIME_DIR_SHARED: '1' }
+    assert.deepEqual(await reapOrphanDaemons(env), [])
   })
 })
 

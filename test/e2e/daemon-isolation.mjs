@@ -306,6 +306,8 @@ async function main() {
   let launched
   let first
   let second
+  let crashed
+  let replacement
   try {
     launched = await launchChrome(port, userDataDir)
     passed.push(`a Chrome launched by the test answers on 127.0.0.1:${port} (pid ${launched.child.pid})`)
@@ -381,8 +383,40 @@ async function main() {
     assert.deepEqual(remaining.map(daemon => daemon.name), [secondDaemon],
       `daemons left: ${remaining.map(daemon => `${daemon.name} (${daemon.pid})`).join(', ')}`)
     passed.push('no daemon of the stopped server outlived it')
+
+    // 6. A server killed with SIGKILL cannot ask anything of its sidecar, but the sidecar sees
+    // end-of-input and shuts its own browser and daemon down; anything that still survives is reaped
+    // by the next server's start. A hard kill must leave neither a daemon nor a launched Chrome
+    // behind, and the next server on the same state root must work without manual cleanup.
+    crashed = await startServer(port)
+    const crashedPid = crashed.transport.pid
+    assert.ok(Number.isInteger(crashedPid), 'the crashing server child has a pid')
+    const crashedOpened = await call(crashed.client, 'browser_open', { url: `${FIXTURE}#orphan` }, 300_000)
+    assert.equal(crashedOpened.isError, false, crashedOpened.text)
+    const orphan = daemonNameFor(crashedPid)
+    const orphanPid = daemons().find(daemon => daemon.name === orphan)?.pid
+    process.kill(crashedPid, 'SIGKILL')
+    assert.ok(await waitGone(crashedPid, 30_000), 'the killed server is gone')
+    replacement = await startServer(port)
+    const replacementOpened = await call(replacement.client, 'browser_open', { url: `${FIXTURE}#reaped` }, 300_000)
+    assert.equal(replacementOpened.isError, false, replacementOpened.text)
+    assert.ok(await waitGone(orphanPid, 30_000), 'no daemon outlived the killed server')
+    assert.ok(!existsSync(join(RUNTIME_DIR, `bu-${orphan}.pid`)), 'the killed server\u2019s daemon files are gone')
+    passed.push('a SIGKILLed server left no daemon behind, and the next server worked')
+
+    // 7. Diagnostics see the page's own load. The domains are enabled when the tab is attached, before
+    // the engine navigates, so a request the document fails while loading is in the buffer -- Chrome
+    // does not replay network events, so enabling later would miss it.
+    const failedLoad = encodeURIComponent('<html><body><img src="http://127.0.0.1:1/never.png"></body></html>')
+    const openedDiagnostics = await call(replacement.client, 'browser_open',
+      { url: `data:text/html,${failedLoad}` }, 300_000)
+    assert.equal(openedDiagnostics.isError, false, openedDiagnostics.text)
+    const consoleText = await call(replacement.client, 'browser_console')
+    assert.match(consoleText.text, /failed request: |HTTP 4\d\d /u,
+      `the page's own load must be reported: ${consoleText.text}`)
+    passed.push('browser_console reported a request the page failed while loading')
   } finally {
-    for (const [label, server] of [['first', first], ['second', second]]) {
+    for (const [label, server] of [['first', first], ['second', second], ['crashed', crashed], ['replacement', replacement]]) {
       if (!server) continue
       const pid = server.transport.pid
       try { await server.client.close() } catch { /* already gone */ }
