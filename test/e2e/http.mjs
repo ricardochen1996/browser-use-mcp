@@ -318,6 +318,12 @@ async function main() {
     assert.equal(profileDirs(`${PROFILE}-alice`).length, 1, 'a named session uses its own stable profile')
     await call(firstAlice.client, 'browser_eval', { expression: "localStorage.setItem('named-profile','kept')" })
     await firstAlice.transport.terminateSession()
+    // The next launch must not race the browser that just lost its session: Chrome keeps a
+    // SingletonLock while it runs and removes it once it has exited and flushed its profile, so wait
+    // for that rather than assuming a fixed delay is long enough on a slow runner.
+    const aliceLocks = () => profileDirs(`${PROFILE}-alice`)
+      .map(name => join(STATE_ROOT, 'profiles', name, 'SingletonLock'))
+    await waitFor(() => aliceLocks().every(path => !existsSync(path)), 20_000, 'the previous Chrome to release the named profile')
     await waitFor(() => profileDirs(`${PROFILE}-alice`).length === 1, 10_000, 'the named profile to be kept')
     await new Promise(resolve => setTimeout(resolve, 1_500))
     assert.equal(profileDirs(`${PROFILE}-alice`).length, 1, 'a named profile is not deleted when its session ends')
