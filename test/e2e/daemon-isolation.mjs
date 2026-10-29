@@ -130,6 +130,16 @@ async function waitForVersion(port, timeoutMs = 30_000) {
   throw new Error(`Chrome never published /json/version on port ${port}`)
 }
 
+/** Wait until one file is gone: a daemon unlinks its files just after its process exits. */
+async function waitFileGone(path, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!existsSync(path)) return true
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  return !existsSync(path)
+}
+
 /** Whether a pid still exists on this machine. */
 function pidAlive(pid) {
   try {
@@ -401,7 +411,7 @@ async function main() {
     const replacementOpened = await call(replacement.client, 'browser_open', { url: `${FIXTURE}#reaped` }, 300_000)
     assert.equal(replacementOpened.isError, false, replacementOpened.text)
     assert.ok(await waitGone(orphanPid, 30_000), 'no daemon outlived the killed server')
-    assert.ok(!existsSync(join(RUNTIME_DIR, `bu-${orphan}.pid`)), 'the killed server\u2019s daemon files are gone')
+    assert.ok(await waitFileGone(join(RUNTIME_DIR, `bu-${orphan}.pid`)), 'the killed server\u2019s daemon files are gone')
     passed.push('a SIGKILLed server left no daemon behind, and the next server worked')
 
     // 7. Diagnostics see the page's own load. The domains are enabled when the tab is attached, before
