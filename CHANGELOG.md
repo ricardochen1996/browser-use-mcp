@@ -7,6 +7,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-13
+
+### Fixed
+
+- **A host that starts the server with an old Node no longer dies with an opaque `SyntaxError`.**
+  Some MCP clients pin the first `node` on `PATH` instead of the one the user's shell resolves; on a
+  machine with several nvm installs that can be Node 14, which cannot parse the `??=` syntax a
+  transitive dependency uses, so the process exited before MCP `initialize`. The executable is now a
+  bootstrap: it checks the runtime against `^22.19.0 || >=24.0.0`, looks for a supported `node` on
+  `PATH` and in the nvm, fnm, mise and asdf trees, and re-execs the same entry point with it,
+  forwarding signals and the stdio transport. When no supported Node exists it exits with the
+  required range and an install hint. The CLI itself moved to `lib/main.js`.
+
 ## [0.1.4] - 2026-10-29
 
 ### Fixed
@@ -272,7 +285,8 @@ These are the pre-release fixes that made the first version safe to publish.
 - `browser-use-mcp` is MIT licensed and bundles or vendors MIT work from `dsh-browser-use`,
   `jev-ultrafast` and `browser-harness`; see [NOTICE](NOTICE).
 
-[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/ricardochen1996/browser-use-mcp/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ricardochen1996/browser-use-mcp/releases/tag/v0.1.2

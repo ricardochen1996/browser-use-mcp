@@ -13,7 +13,9 @@ the Jev policy, when credentials are configured.
 ## Repository layout
 
 ```text
-bin/browser-use-mcp.mjs   CLI entry: `serve` (default), `doctor`, `install`
+bin/browser-use-mcp.mjs   executable bootstrap: checks the Node runtime, re-execs a supported one
+lib/bootstrap.js          Node engine range + candidate search + re-exec (must parse on old Node)
+lib/main.js               CLI entry: `serve` (default), `doctor`, `install`
 lib/config.js             flags + environment -> one resolved config object
 lib/cli.js                argv -> { command, flags } (node:util parseArgs)
 lib/log.js                stderr logger (stdout belongs to the stdio transport)

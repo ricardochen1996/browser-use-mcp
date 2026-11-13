@@ -20,7 +20,11 @@ working directory.
 2. **Make sure `node` is the Node 22+ you expect.** The server needs Node `^22.19.0 || >=24.0.0`.
    A GUI-launched client often has a shorter `PATH` than your shell. If it cannot find `node` or
    `npx`, run `which node` in your shell and put that absolute path in `command` instead — for
-   example `/opt/homebrew/bin/node`.
+   example `/opt/homebrew/bin/node`. The executable also checks its own runtime: when a host starts
+   it on an older Node and a supported one is reachable on `PATH` or in the nvm/fnm/mise/asdf trees,
+   it restarts itself with that Node; when none exists it exits with a message naming the required
+   range. An absolute path in `command` is still the reliable wiring for a host with a scrubbed
+   `PATH`.
 3. **stdout is the protocol; logs are stderr.** While serving MCP, stdout carries JSON-RPC frames
    and every log line goes to stderr. When a client shows nothing, run the exact command in a
    terminal: the JSON-RPC traffic appears on stdout and `browser-use-mcp …` log lines on stderr,
@@ -435,6 +439,7 @@ Notes:
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | Client says the server exited immediately | `node` or `npx` not found, or a bad flag value | Run the same command in a terminal and read stderr; a configuration error exits with code `2` and names the field. |
+| Server log shows a `SyntaxError` such as `Unexpected token '??='` | The client started the server with an old Node | The executable restarts itself when a supported Node is on `PATH`; if it cannot, install Node 22 or put its absolute path in `command`. |
 | Server starts but no tools appear | Wrong config file, or the client was not restarted | Use the client's MCP list/log view; restart the client after editing its config. |
 | First call takes minutes, then works | First run is provisioning the Python environment | Wait, or run `browser-use-mcp install` (or `npx -y @ricardochen1996/browser-use-mcp@latest install`) first. Behind a proxy, set `HTTPS_PROXY`. |
 | `browser_doctor` reports `Status: ready` but calls fail | The profile is held by another server, or the browser process died | Read the failure text — a profile collision names `--profile`; a dead browser is rebuilt on the next `browser_open`. |

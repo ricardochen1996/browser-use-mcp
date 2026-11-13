@@ -79,7 +79,7 @@ Observation 3. Targets below are valid only for this observation.
 
 ## 快速开始
 
-**需要** Node.js `^22.19.0 || >=24.0.0`、Chrome 或 Chromium，以及一个能拿到 Python 3.12+ 的途径：`PATH` 上的 `python3.12`–`python3.14`、`python3`（3.12 或更新），或者 [uv](https://docs.astral.sh/uv/)（它能自己下载 Python）。
+**需要** Node.js `^22.19.0 || >=24.0.0`、Chrome 或 Chromium，以及一个能拿到 Python 3.12+ 的途径：`PATH` 上的 `python3.12`–`python3.14`、`python3`（3.12 或更新），或者 [uv](https://docs.astral.sh/uv/)（它能自己下载 Python）。可执行文件会检查自己所在的运行时：如果客户端用旧版 Node 启动它，它会在 `PATH` 以及常见的 nvm/fnm/mise/asdf 目录里找一个受支持的 Node 并用它重新启动；一个都找不到时，它会直接报出所需的版本范围，而不是让依赖里的语法错误炸掉进程。
 
 **驱动哪个浏览器。** 默认是 **attach** 模式：服务器直接驱动你日常用的 Chrome，agent 看到的登录态和标签页就是你自己的。先在那个 Chrome 里打开一次远程调试（`chrome://inspect/#remote-debugging` → 允许）；macOS 上还需要给运行服务器的应用**完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。想要一个隔离的浏览器，就加 `--mode launch`，服务器会在状态根下用自己的 profile 启动一个专属 Chrome。
 
@@ -182,6 +182,9 @@ claude mcp add --scope user browser-use \
 客户端也可以直接运行装好的命令（`"command": "browser-use-mcp"`）；如果希望整个团队跑同一个
 版本，就把 `@latest` 换成具体的版本号。GUI 客户端的 `PATH` 比较短时，用命令的绝对路径
 （`command -v browser-use-mcp`；Homebrew 装的 Node 通常是 `/opt/homebrew/bin/browser-use-mcp`）。
+如果客户端坚持用自己找到的旧版 Node 启动服务器，可执行文件会尝试在 `PATH` 和 nvm/fnm/mise/asdf
+的目录里换用受支持的 Node；`PATH` 被裁剪得只剩一个旧版本时，仍然要把 `command` 写成 Node 22+
+的绝对路径。
 
 然后让 agent 去 `browser_open` 一个 URL。新机器上的第一次调用可能要等一两分钟来装环境，之后的调用立即开始。
 

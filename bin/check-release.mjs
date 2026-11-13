@@ -27,7 +27,7 @@ const tag = tagIndex === -1 ? undefined : args[tagIndex + 1]
 /** The files the published package must contain. */
 const REQUIRED = [
   'package.json',
-  'bin/browser-use-mcp.mjs',
+  'bin/browser-use-mcp.mjs', 'lib/bootstrap.js', 'lib/main.js',
   'lib/cli.js', 'lib/config.js', 'lib/doctor.js', 'lib/engine.js', 'lib/http.js', 'lib/jev.js',
   'lib/log.js', 'lib/provision.js', 'lib/python.js', 'lib/render.js', 'lib/server.js',
   'lib/session.js', 'lib/sidecar.js', 'lib/tools.js',

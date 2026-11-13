@@ -109,7 +109,10 @@ start a second CDP client. `--no-eval` withdraws it.
 
 **Requires** Node.js `^22.19.0 || >=24.0.0`, Chrome or Chromium, and a way to get Python 3.12+:
 either `python3.12`–`python3.14`, `python3` (3.12 or newer) on `PATH`, or [uv](https://docs.astral.sh/uv/),
-which can fetch the Python itself.
+which can fetch the Python itself. The executable checks the runtime it was started with: if a client
+starts it on an older Node, it looks for a supported one on `PATH` and in the usual
+nvm/fnm/mise/asdf trees and restarts itself with it; if there is none, it exits with a message naming
+the required range instead of failing inside a dependency.
 
 **Which browser it drives.** The default mode is **attach**: the server drives the Chrome you already
 use, so its logins and tabs are the ones the agent sees. Enable remote debugging once in that Chrome
